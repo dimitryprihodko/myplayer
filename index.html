@@ -1090,22 +1090,37 @@
             }
         };
         btnSelectFolderAll.onclick = async () => {
-            try {
-                const dirHandle = await window.showDirectoryPicker();
-                const files = [];
-                for await (const entry of dirHandle.values()) {
-                    if (entry.kind === 'file') {
-                        const file = await entry.getFile();
-                        const ext = file.name.split('.').pop().toLowerCase();
-                        if (['mp3','flac','wav','ogg','m4a','opus','aac'].includes(ext)) {
-                            files.push(file);
+            // Проверяем, поддерживается ли showDirectoryPicker
+            if (window.showDirectoryPicker) {
+                try {
+                    const dirHandle = await window.showDirectoryPicker();
+                    const files = [];
+                    for await (const entry of dirHandle.values()) {
+                        if (entry.kind === 'file') {
+                            const file = await entry.getFile();
+                            const ext = file.name.split('.').pop().toLowerCase();
+                            if (['mp3','flac','wav','ogg','m4a','opus','aac'].includes(ext)) {
+                                files.push(file);
+                            }
                         }
                     }
+                    if (files.length) await processFiles(files);
+                    return;
+                } catch(e) {
+                    console.log('Выбор папки отменён', e);
+                    // Если пользователь отменил — просто выходим
+                    if (e.name !== 'AbortError') {
+                        // Пробуем запасной вариант
+                    }
                 }
-                if (files.length) await processFiles(files);
-            } catch(e) {
-                console.log('Выбор папки отменён или недоступен', e);
             }
+
+            // ЗАПАСНОЙ ВАРИАНТ: выбираем несколько файлов через input
+            fileInput.value = '';
+            fileInput.onchange = async (e) => {
+                if (e.target.files.length) await processFiles(Array.from(e.target.files));
+            };
+            fileInput.click();
         };
         loadSettings();
         buildEQ();
