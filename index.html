@@ -208,9 +208,6 @@
                 <input type="text" id="online-search" placeholder="🔍 Поиск (например: pink floyd, rock, jazz)">
                 <button id="btn-online-search">🔍 Искать</button>
             </div>
-            <div class="proxy-option">
-                <input type="checkbox" id="chk-cors-proxy"> 🌐 Использовать CORS-прокси (если станция не играет)
-            </div>
             <div class="section-header"><span>📡 Результаты поиска</span><span id="results-count"></span></div>
             <div id="search-results-container" class="stations-container"></div>
             <div class="pagination" id="search-pagination">
@@ -531,10 +528,14 @@
 
         async function playRadioStream(url, name) {
             if (!url) return;
+
+            // Автоматически используем CORS-прокси для проблемных станций
             let finalUrl = url;
-            if (chkCorsProxy && chkCorsProxy.checked) {
+            // Простой детект: если URL не безопасный или может быть CORS
+            if (!url.startsWith('https://')) {
                 finalUrl = `https://cors-anywhere.herokuapp.com/${url}`;
             }
+
             stopRadio();
             const rs = document.getElementById('radio-status');
             rs.innerHTML = '🔄 Подключение... <span class="spinner"></span>';
@@ -544,26 +545,51 @@
                 try {
                     const audio = new Audio();
                     audio.crossOrigin = 'anonymous';
+
+                    // Устанавливаем тип чтобы избежать ошибок формата
+                    audio.preload = 'metadata';
+
                     const connectPromise = new Promise((resolve, reject) => {
                         let resolved = false;
-                        audio.oncanplay = () => { if (!resolved) { resolved = true; resolve(true); } };
+
+                        audio.oncanplay = () => {
+                            if (!resolved) {
+                                resolved = true;
+                                resolve(true);
+                            }
+                        };
+
                         audio.onerror = (e) => {
                             if (!resolved) {
                                 resolved = true;
-                                reject(new Error(audio.error?.message || 'Ошибка потока'));
+                                const errorCode = audio.error?.code;
+                                let errorMsg = 'Ошибка потока';
+                                if (errorCode === 3) errorMsg = 'Ошибка декодирования (неподдерживаемый формат)';
+                                if (errorCode === 4) errorMsg = 'Медиа не найдено';
+                                reject(new Error(errorMsg));
                             }
                         };
-                        setTimeout(() => { if (!resolved) { resolved = true; reject(new Error('Таймаут 12с')); } }, 12000);
+
+                        setTimeout(() => {
+                            if (!resolved) {
+                                resolved = true;
+                                reject(new Error('Таймаут подключения 15с'));
+                            }
+                        }, 15000);
                     });
+
                     audio.src = finalUrl;
                     await connectPromise;
+
                     const ctx = initAudio();
                     if (ctx.state === 'suspended') await ctx.resume();
                     applySavedSettings();
+
                     if (radioSource) try { radioSource.disconnect(); } catch(e) {}
                     radioSource = ctx.createMediaElementSource(audio);
                     radioSource.connect(graphInput || buildAudioGraph());
                     radioAudio = audio;
+
                     audio.onended = () => {
                         if (radioReconnectAttempts < 3 && radioAudio) {
                             radioReconnectAttempts++;
@@ -572,6 +598,7 @@
                             }, 3000);
                         }
                     };
+
                     audio.onerror = () => {
                         if (radioReconnectAttempts < 3 && radioAudio) {
                             radioReconnectAttempts++;
@@ -580,13 +607,20 @@
                             }, 3000);
                         }
                     };
+
                     await audio.play();
                     radioReconnectAttempts = 0;
-                    rs.innerHTML = `🎵 ${name || 'Радио'}`;
+                    rs.innerHTML = `🎵 ${name || 'Радио'} (${finalUrl.includes('cors-anywhere') ? 'через прокси' : 'прямо'})`;
                     rs.style.color = '#4caf50';
+
+                    // Подсвечиваем выбранную станцию
+                    highlightSelectedStation(url, name);
+
                 } catch (err) {
                     let msg = err.message;
-                    if (msg.includes('Failed to fetch') || msg.includes('NetworkError')) msg = 'Не удалось подключиться. Возможно нужен VPN или CORS-прокси.';
+                    if (msg.includes('Failed to fetch') || msg.includes('NetworkError')) {
+                        msg = 'Не удалось подключиться. Станция может быть недоступна.';
+                    }
                     rs.innerHTML = `❌ ${msg}`;
                     rs.style.color = '#e94560';
                     if (attempt < 2) {
@@ -596,7 +630,24 @@
                     }
                 }
             };
+
             tryConnect();
+        }
+
+        // Функция подсветки выбранной станции
+        function highlightSelectedStation(url, name) {
+            // Убираем подсветку со всех
+            document.querySelectorAll('.station-item, .favorite-item').forEach(el => {
+                el.style.background = '';
+            });
+            // Ищем и подсвечиваем нужную
+            document.querySelectorAll('.station-item, .favorite-item').forEach(el => {
+                const stationName = el.querySelector('.station-name')?.innerText || '';
+                if (stationName === name || (el.querySelector('.favorite-name')?.innerText.includes(name))) {
+                    el.style.background = 'var(--highlight)';
+                    el.style.opacity = '0.8';
+                }
+            });
         }
 
         function saveSettings() {
@@ -1342,7 +1393,17 @@ function renderPlaylist() {
             searchResultsContainer.innerHTML = '';
             if (!searchResults.length) { searchResultsContainer.innerHTML = '<div class="empty-message">🔍 Ничего не найдено</div>'; resultsCountSpan.textContent = ''; }
             else if (!pageResults.length) searchResultsContainer.innerHTML = '<div class="empty-message">📄 Нет результатов</div>';
-            else pageResults.forEach(s => searchResultsContainer.appendChild(renderStationItem(s, () => { stationUrl.value = s.url; stationName.value = s.name; playRadioStream(s.url, s.name); })));
+            else {
+                pageResults.forEach(s => {
+                    const stationEl = renderStationItem(s, () => {
+                        stationUrl.value = s.url;
+                        stationName.value = s.name;
+                        playRadioStream(s.url, s.name);
+                        highlightSelectedStation(s.url, s.name);
+                    });
+                    searchResultsContainer.appendChild(stationEl);
+                });
+            }
             const totalPages = Math.ceil(searchResults.length / PAGE_SIZE);
             resultsCountSpan.textContent = `(${searchResults.length})`;
             pageInfoEl.textContent = `Страница ${currentPage+1} из ${totalPages||1}`;
@@ -1356,7 +1417,27 @@ function renderPlaylist() {
             favoritesContainer.innerHTML = '';
             if (!favoriteStations.length) favoritesContainer.innerHTML = '<div class="empty-message">⭐ Нет избранных</div>';
             else if (!pageFavs.length) favoritesContainer.innerHTML = '<div class="empty-message">📄 Нет результатов</div>';
-            else pageFavs.forEach((s, i) => favoritesContainer.appendChild(renderFavoriteItem(s, start+i, () => { favoriteStations.splice(start+i,1); if (currentFavPage && !favoriteStations.length) currentFavPage--; saveFavorites(); radioStatusEl.textContent = '🗑 Удалено'; })));
+            else {
+                pageFavs.forEach((s, i) => {
+                    const favEl = renderFavoriteItem(s, start+i, () => {
+                        favoriteStations.splice(start+i,1);
+                        if (currentFavPage && !favoriteStations.length) currentFavPage--;
+                        saveFavorites();
+                        radioStatusEl.textContent = '🗑 Удалено';
+                        highlightSelectedStation('', ''); // убираем подсветку после удаления
+                    });
+                    // Добавляем клик для воспроизведения с подсветкой
+                    favEl.onclick = (e) => {
+                        if (!e.target.classList.contains('delete-btn')) {
+                            stationUrl.value = s.url;
+                            stationName.value = s.name;
+                            playRadioStream(s.url, s.name);
+                            highlightSelectedStation(s.url, s.name);
+                        }
+                    };
+                    favoritesContainer.appendChild(favEl);
+                });
+            }
             const totalPages = Math.ceil(favoriteStations.length / FAV_PAGE_SIZE);
             favCountSpan.textContent = `(${favoriteStations.length})`;
             favPageInfoEl.textContent = `Страница ${currentFavPage+1} из ${totalPages||1}`;
@@ -1490,7 +1571,30 @@ function renderPlaylist() {
                 currentSource = null;
             }
         }
+        function highlightSelectedStation(url, name) {
+            // Убираем подсветку со всех элементов
+            document.querySelectorAll('.station-item, .favorite-item').forEach(el => {
+                el.style.background = '';
+                el.style.opacity = '1';
+            });
 
+            // Подсвечиваем выбранную станцию
+            document.querySelectorAll('.station-item, .favorite-item').forEach(el => {
+                let stationText = '';
+                if (el.classList.contains('favorite-item')) {
+                    const nameSpan = el.querySelector('.favorite-name');
+                    if (nameSpan) stationText = nameSpan.innerText.replace('⭐ ', '');
+                } else {
+                    const nameDiv = el.querySelector('.station-name');
+                    if (nameDiv) stationText = nameDiv.innerText.split('📍')[0].trim();
+                }
+
+                if (stationText === name) {
+                    el.style.background = 'var(--highlight)';
+                    el.style.opacity = '0.9';
+                }
+            });
+        }
         loadSettings();
         buildEQ();
         initPresets();
