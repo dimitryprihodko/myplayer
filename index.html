@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
     <meta name="theme-color" content="#16213e">
-    <title>Audio Player</title>
+    <title>Audio Player Pro</title>
     <style>
         :root {
             --bg: #1a1a2e;
@@ -153,10 +153,12 @@
         .section-header { font-size: 0.75rem; color: var(--highlight); font-weight: bold; margin: 16px 0 8px; display: flex; justify-content: space-between; }
         .stations-container { max-height: 320px; overflow-y: auto; border-radius: 8px; }
         .empty-message { color: var(--text2); font-size: 0.75rem; text-align: center; padding: 20px; background: var(--surface); border-radius: 10px; }
+        .proxy-option { display: flex; align-items: center; gap: 8px; font-size: 0.7rem; margin-top: 8px; color: var(--text2); }
+        .proxy-option input { width: auto; margin: 0; }
     </style>
 </head>
 <body>
-    <header><h1>🎧 Audio Player</h1></header>
+    <header><h1>🎧 Audio Player Pro</h1></header>
     <div id="tabs">
         <button class="tab active" data-tab="audio">🎵 Аудио</button>
         <button class="tab" data-tab="radio">📻 Радио</button>
@@ -167,7 +169,7 @@
             <button id="btn-select-folder">🎵 Выбрать треки</button>
             <button id="btn-select-folder-all">📁 Выбрать папку (все файлы)</button>
             <button id="btn-clear-playlist" style="background:#e94560;">🗑 Очистить список</button>
-            <input type="file" id="file-input" multiple accept="audio/*" style="display:none;">
+            <input type="file" id="file-input" multiple accept="audio/*,.cue" style="display:none;">
             <span id="folder-name">Не выбрано</span>
         </div>
 
@@ -178,6 +180,12 @@
 
         <ul id="playlist"></ul>
         <div id="playlist-stats" style="font-size:0.65rem; color:var(--text2); text-align:center; margin-bottom:6px;"></div>
+
+        <div id="selection-tools" style="display: none; gap: 8px; margin-bottom: 8px;">
+            <button id="btn-move-up-group">▲▲ Вверх группой</button>
+            <button id="btn-move-down-group">▼▼ Вниз группой</button>
+            <button id="btn-clear-selection" style="background:#555;">✖ Снять выделение</button>
+        </div>
 
         <div id="now-playing">
             <div id="track-title">Нет трека</div>
@@ -199,6 +207,9 @@
             <div class="search-row">
                 <input type="text" id="online-search" placeholder="🔍 Поиск (например: pink floyd, rock, jazz)">
                 <button id="btn-online-search">🔍 Искать</button>
+            </div>
+            <div class="proxy-option">
+                <input type="checkbox" id="chk-cors-proxy"> 🌐 Использовать CORS-прокси (если станция не играет)
             </div>
             <div class="section-header"><span>📡 Результаты поиска</span><span id="results-count"></span></div>
             <div id="search-results-container" class="stations-container"></div>
@@ -282,7 +293,11 @@
         const loaderDetail = document.getElementById('loader-detail');
         const btnClearPlaylist = document.getElementById('btn-clear-playlist');
         const btnSelectFolderAll = document.getElementById('btn-select-folder-all');
-
+        const chkCorsProxy = document.getElementById('chk-cors-proxy');
+        const selectionTools = document.getElementById('selection-tools');
+        const btnMoveUpGroup = document.getElementById('btn-move-up-group');
+        const btnMoveDownGroup = document.getElementById('btn-move-down-group');
+        const btnClearSelection = document.getElementById('btn-clear-selection');
 
         let audioContext = null;
         let fullPlaylist = [];
@@ -300,7 +315,7 @@
         let seekTimeout = null;
         let isLoadingTrack = false;
         let currentSearchQuery = '';
-
+        let isDecodingInProgress = false;
         let eqFilters = [];
         let stereoWidener = null;
         let delayNode = null;
@@ -314,10 +329,119 @@
         let graphBuilt = false;
         let radioAudio = null;
         let radioSource = null;
+        let radioReconnectAttempts = 0;
+        let radioReconnectTimer = null;
+        let selectedIndices = new Set();
+        let selectionMode = false;
+
 
         const EQ_FREQS = [31, 62, 125, 250, 500, 1000, 2000, 4000, 8000, 16000];
         const bufferCache = new Map();
-        const MAX_CACHE = 15;
+        const MAX_CACHE = 50;
+
+        // ========== ИСПРАВЛЕННЫЙ CUE ПАРСЕР ==========
+        function parseCueAdvanced(cueText) {
+            if (cueText.charCodeAt(0) === 0xFEFF) cueText = cueText.slice(1);
+
+            const tracks = [];
+            const lines = cueText.split(/\r?\n/);
+            let currentFile = null;
+            let currentTrack = null;
+
+            const timeToSeconds = (str) => {
+                if (!str) return null;
+                const parts = str.trim().split(':');
+                if (parts.length === 2) {
+                    return parseInt(parts[0]) * 60 + parseFloat(parts[1]);
+                } else if (parts.length === 3) {
+                    return parseInt(parts[0]) * 60 + parseInt(parts[1]) + parseInt(parts[2]) / 75;
+                }
+                return null;
+            };
+
+            const cleanQuoted = (str) => {
+                return str.replace(/^["']|["']$/g, '').trim();
+            };
+
+            for (let i = 0; i < lines.length; i++) {
+                const line = lines[i];
+                const trimmed = line.trim();
+                if (!trimmed) continue;
+                const upper = trimmed.toUpperCase();
+
+                if (upper.startsWith('REM')) continue;
+
+                if (upper.startsWith('FILE ')) {
+                    const match = trimmed.match(/^FILE\s+(.+?)\s+(WAVE|MP3|AIFF|BINARY|MOTOROLA|CDDA|FLAC|MPA|OGG)/i);
+                    if (match) {
+                        currentFile = cleanQuoted(match[1]);
+                    }
+                }
+                else if (upper.startsWith('TRACK ')) {
+                    if (currentTrack && currentTrack.index01 !== null && currentFile) {
+                        tracks.push({ ...currentTrack, file: currentFile });
+                    }
+                    const match = trimmed.match(/^TRACK\s+(\d+)\s*(AUDIO)?/i);
+                    if (match) {
+                        currentTrack = {
+                            number: parseInt(match[1]),
+                            title: `Track ${match[1]}`,
+                            performer: '',
+                            index01: null,
+                            index00: null
+                        };
+                    }
+                }
+                else if (currentTrack) {
+                    const upperLine = trimmed.toUpperCase();
+                    if (upperLine.startsWith('TITLE ')) {
+                        const m = trimmed.match(/^TITLE\s+(.+)$/i);
+                        if (m) {
+                            currentTrack.title = cleanQuoted(m[1]);
+                        }
+                    }
+                    else if (upperLine.startsWith('PERFORMER ')) {
+                        const m = trimmed.match(/^PERFORMER\s+(.+)$/i);
+                        if (m) {
+                            currentTrack.performer = cleanQuoted(m[1]);
+                        }
+                    }
+                    else if (upperLine.startsWith('INDEX 00 ')) {
+                        const m = trimmed.match(/^INDEX 00\s+(.+)$/i);
+                        if (m) currentTrack.index00 = timeToSeconds(m[1]);
+                    }
+                    else if (upperLine.startsWith('INDEX 01 ')) {
+                        const m = trimmed.match(/^INDEX 01\s+(.+)$/i);
+                        if (m) {
+                            currentTrack.index01 = timeToSeconds(m[1]);
+                        }
+                    }
+                }
+            }
+
+            if (currentTrack && currentTrack.index01 !== null && currentFile) {
+                tracks.push({ ...currentTrack, file: currentFile });
+            }
+
+            return tracks;
+        }
+
+        function savePlaylistToStorage() {
+            if (!fullPlaylist.length) return;
+            try {
+                const serialized = fullPlaylist.map(item => ({
+                    name: item.name,
+                    fileName: item.file.name,
+                    fileSize: item.file.size,
+                    fileType: item.file.type,
+                    isCue: item.isCue || false,
+                    cueStart: item.cueStart || null,
+                    cueEnd: item.cueEnd || null
+                }));
+                localStorage.setItem('saved-playlist', JSON.stringify(serialized));
+                localStorage.setItem('playlist-timestamp', Date.now());
+            } catch(e) { console.warn(e); }
+        }
 
         function showLoader(text, detail) {
             loadingOverlay.classList.add('active');
@@ -397,6 +521,8 @@
         }
 
         function stopRadio() {
+            if (radioReconnectTimer) clearTimeout(radioReconnectTimer);
+            radioReconnectAttempts = 0;
             if (radioAudio) { try { radioAudio.pause(); radioAudio.src = ''; } catch(e) {} radioAudio = null; }
             if (radioSource) { try { radioSource.disconnect(); } catch(e) {} radioSource = null; }
             const rs = document.getElementById('radio-status');
@@ -405,38 +531,72 @@
 
         async function playRadioStream(url, name) {
             if (!url) return;
+            let finalUrl = url;
+            if (chkCorsProxy && chkCorsProxy.checked) {
+                finalUrl = `https://cors-anywhere.herokuapp.com/${url}`;
+            }
             stopRadio();
             const rs = document.getElementById('radio-status');
             rs.innerHTML = '🔄 Подключение... <span class="spinner"></span>';
             rs.style.color = '#ffa500';
-            try {
-                const audio = new Audio();
-                audio.crossOrigin = 'anonymous';
-                const connectPromise = new Promise((resolve, reject) => {
-                    let resolved = false;
-                    audio.oncanplay = () => { if (!resolved) { resolved = true; resolve(true); } };
-                    audio.onerror = () => { if (!resolved) { resolved = true; reject(new Error('Ошибка потока')); } };
-                    setTimeout(() => { if (!resolved) { resolved = true; reject(new Error('Таймаут 12с')); } }, 12000);
-                });
-                audio.src = url;
-                await connectPromise;
-                const ctx = initAudio();
-                if (ctx.state === 'suspended') await ctx.resume();
-                applySavedSettings();
-                if (radioSource) try { radioSource.disconnect(); } catch(e) {}
-                radioSource = ctx.createMediaElementSource(audio);
-                radioSource.connect(graphInput || buildAudioGraph());
-                radioAudio = audio;
-                await audio.play();
-                rs.innerHTML = `🎵 ${name || 'Радио'}`;
-                rs.style.color = '#4caf50';
-            } catch (err) {
-                let msg = err.message;
-                if (msg.includes('Failed to fetch') || msg.includes('NetworkError')) msg = 'Не удалось подключиться. Возможно нужен VPN.';
-                rs.innerHTML = `❌ ${msg}`;
-                rs.style.color = '#e94560';
-                stopRadio();
-            }
+
+            const tryConnect = async (attempt = 0) => {
+                try {
+                    const audio = new Audio();
+                    audio.crossOrigin = 'anonymous';
+                    const connectPromise = new Promise((resolve, reject) => {
+                        let resolved = false;
+                        audio.oncanplay = () => { if (!resolved) { resolved = true; resolve(true); } };
+                        audio.onerror = (e) => {
+                            if (!resolved) {
+                                resolved = true;
+                                reject(new Error(audio.error?.message || 'Ошибка потока'));
+                            }
+                        };
+                        setTimeout(() => { if (!resolved) { resolved = true; reject(new Error('Таймаут 12с')); } }, 12000);
+                    });
+                    audio.src = finalUrl;
+                    await connectPromise;
+                    const ctx = initAudio();
+                    if (ctx.state === 'suspended') await ctx.resume();
+                    applySavedSettings();
+                    if (radioSource) try { radioSource.disconnect(); } catch(e) {}
+                    radioSource = ctx.createMediaElementSource(audio);
+                    radioSource.connect(graphInput || buildAudioGraph());
+                    radioAudio = audio;
+                    audio.onended = () => {
+                        if (radioReconnectAttempts < 3 && radioAudio) {
+                            radioReconnectAttempts++;
+                            radioReconnectTimer = setTimeout(() => {
+                                playRadioStream(url, name);
+                            }, 3000);
+                        }
+                    };
+                    audio.onerror = () => {
+                        if (radioReconnectAttempts < 3 && radioAudio) {
+                            radioReconnectAttempts++;
+                            radioReconnectTimer = setTimeout(() => {
+                                playRadioStream(url, name);
+                            }, 3000);
+                        }
+                    };
+                    await audio.play();
+                    radioReconnectAttempts = 0;
+                    rs.innerHTML = `🎵 ${name || 'Радио'}`;
+                    rs.style.color = '#4caf50';
+                } catch (err) {
+                    let msg = err.message;
+                    if (msg.includes('Failed to fetch') || msg.includes('NetworkError')) msg = 'Не удалось подключиться. Возможно нужен VPN или CORS-прокси.';
+                    rs.innerHTML = `❌ ${msg}`;
+                    rs.style.color = '#e94560';
+                    if (attempt < 2) {
+                        setTimeout(() => tryConnect(attempt + 1), 2000);
+                    } else {
+                        stopRadio();
+                    }
+                }
+            };
+            tryConnect();
         }
 
         function saveSettings() {
@@ -457,7 +617,7 @@
                 if (s.stereo !== undefined) { stereoSlider.value = s.stereo; valStereo.textContent = s.stereo; }
                 if (s.eq) { const sl = eqBandsDiv.querySelectorAll('input[type="range"]'); s.eq.forEach((v, i) => { if (sl[i]) sl[i].value = v; }); }
                 if (s.gapless !== undefined) chkGapless.checked = s.gapless;
-            } catch (e) {}
+            } catch(e) {}
         }
 
         function applySavedSettings() {
@@ -467,36 +627,6 @@
             if (stereoWidener) stereoWidener.gain.value = parseFloat(stereoSlider.value) / 100;
             const sl = eqBandsDiv.querySelectorAll('input[type="range"]');
             sl.forEach((s, i) => { if (eqFilters[i]) eqFilters[i].gain.value = parseFloat(s.value); });
-        }
-
-        function parseCue(cueText) {
-            const tracks = [];
-            const lines = cueText.split(/\r?\n/);
-            let currentTrack = null;
-            const timeToSeconds = (str) => {
-                const parts = str.split(':');
-                return parseInt(parts[0]) * 60 + parseInt(parts[1]) + (parts[2] ? parseInt(parts[2]) / 75 : 0);
-            };
-            for (const line of lines) {
-                const trimmed = line.trim();
-                if (!trimmed) continue;
-                if (trimmed.toUpperCase().startsWith('TRACK ')) {
-                    const match = trimmed.match(/^TRACK\s+(\d+)\s+(.+)$/i);
-                    if (match) currentTrack = { number: parseInt(match[1]), title: `Track ${match[1]}`, performer: '', index01: null };
-                } else if (currentTrack) {
-                    if (trimmed.toUpperCase().startsWith('TITLE ')) {
-                        const m = trimmed.match(/^TITLE\s+"(.+)"$/i) || trimmed.match(/^TITLE\s+(.+)$/i);
-                        if (m) currentTrack.title = m[1];
-                    } else if (trimmed.toUpperCase().startsWith('PERFORMER ')) {
-                        const m = trimmed.match(/^PERFORMER\s+"(.+)"$/i) || trimmed.match(/^PERFORMER\s+(.+)$/i);
-                        if (m) currentTrack.performer = m[1];
-                    } else if (trimmed.toUpperCase().startsWith('INDEX 01 ')) {
-                        const m = trimmed.match(/^INDEX 01\s+(.+)$/i);
-                        if (m) currentTrack.index01 = timeToSeconds(m[1]);
-                    }
-                }
-            }
-            return tracks.filter(t => t.index01 !== null);
         }
 
         async function loadFile(index) {
@@ -510,9 +640,6 @@
             try {
                 const ab = await item.file.arrayBuffer();
                 const ctx = initAudio();
-                if (item.file.name.endsWith('.flac') && item.file.size > 50 * 1024 * 1024) {
-                    showLoader('🎵 Декодирование FLAC...', 'Это может занять 10-30 секунд');
-                }
                 const fullBuffer = await ctx.decodeAudioData(ab);
                 let resultBuffer = fullBuffer;
                 if (item.isCue && item.cueStart !== null) {
@@ -529,9 +656,6 @@
                 }
                 if (bufferCache.size > MAX_CACHE) bufferCache.delete(bufferCache.keys().next().value);
                 bufferCache.set(cacheKey, resultBuffer);
-                if (item.file.name.endsWith('.flac') && item.file.size > 50 * 1024 * 1024) {
-                    hideLoader();
-                }
                 return resultBuffer;
             } finally { isLoadingTrack = false; }
         }
@@ -547,12 +671,22 @@
 
         function startSource(offset) {
             if (isSeeking || !currentBuffer) return;
+
+            // Убиваем старый источник если есть
+            if (currentSource) {
+                try {
+                    currentSource.stop();
+                    currentSource.disconnect();
+                } catch(e) {}
+                currentSource = null;
+            }
+
             const ctx = initAudio();
-            killAllSources();
             let startOffset = Math.min(Math.max(0, offset), currentBuffer.duration - 0.1);
             currentSource = ctx.createBufferSource();
             currentSource.buffer = currentBuffer;
             currentSource.connect(graphInput);
+
             currentSource.onended = () => {
                 if (chkGapless.checked && nextBuffer && !isSeeking) {
                     currentBuffer = nextBuffer;
@@ -571,6 +705,7 @@
                     updateTimeDisplay();
                 }
             };
+
             currentSource.start(0, startOffset);
             startTime = ctx.currentTime - startOffset;
             pausedAt = startOffset;
@@ -578,7 +713,6 @@
             btnPlay.textContent = '⏸️';
             startTimeUpdate();
         }
-
         async function preloadNext() {
             const nextIdx = currentIndex + 1;
             if (nextIdx >= playlist.length) { nextBuffer = null; return; }
@@ -592,24 +726,39 @@
         }
 
         function actionPlay() {
+            console.log('actionPlay, isPlaying =', isPlaying);
             if (!currentBuffer) return;
             stopRadio();
             if (isPlaying) {
                 pausedAt = getCurrentTime();
-                killAllSources();
+                if (currentSource) {
+                    try { currentSource.stop(); } catch(e) {}
+                    try { currentSource.disconnect(); } catch(e) {}
+                    currentSource = null;
+                }
                 isPlaying = false;
                 btnPlay.textContent = '▶️';
+                if (animationId) cancelAnimationFrame(animationId);
                 updateTimeDisplay();
-            } else { startSource(pausedAt); }
+            } else {
+                startSource(pausedAt);
+            }
         }
 
         function actionStop() {
-            killAllSources();
+            console.log('actionStop');
+            // Жёсткая остановка
+            if (currentSource) {
+                try { currentSource.stop(); } catch(e) {}
+                try { currentSource.disconnect(); } catch(e) {}
+                currentSource = null;
+            }
+            if (animationId) cancelAnimationFrame(animationId);
             isPlaying = false;
             btnPlay.textContent = '▶️';
             pausedAt = 0;
             seekBar.value = 0;
-            updateTimeDisplay();
+            if (currentBuffer) updateTimeDisplay();
         }
 
         function actionRewind() {
@@ -635,11 +784,42 @@
             updateTimeDisplay();
             if (wasPlaying) startSource(t);
         }
-
-        async function actionSelectTrack(index) {
+           async function actionSelectTrack(index, skipAutoPlay = false) {
             if (index < 0 || index >= playlist.length || isLoadingTrack) return;
+
+            // Останавливаем радио
             stopRadio();
-            killAllSources();
+
+            // ===== ЖЁСТКАЯ ОСТАНОВКА ВСЕХ ИСТОЧНИКОВ =====
+            if (currentSource) {
+                try {
+                    currentSource.stop();
+                    currentSource.disconnect();
+                } catch(e) {}
+                currentSource = null;
+            }
+
+            // Отключаем все узлы от destination (запасной вариант)
+            if (audioContext && audioContext.destination) {
+                try {
+                    // Создаём временный узел-заглушку
+                    const dummyGain = audioContext.createGain();
+                    dummyGain.gain.value = 0;
+                    dummyGain.connect(audioContext.destination);
+                    // Убираем его через секунду
+                    setTimeout(() => {
+                        try { dummyGain.disconnect(); } catch(e) {}
+                    }, 100);
+                } catch(e) {}
+            }
+
+            // Сбрасываем анимацию
+            if (animationId) {
+                cancelAnimationFrame(animationId);
+                animationId = null;
+            }
+
+            // Сбрасываем состояние
             isPlaying = false;
             btnPlay.textContent = '▶️';
             currentBuffer = null;
@@ -647,12 +827,23 @@
             pausedAt = 0;
             seekBar.value = 0;
             currentIndex = index;
+
             try {
                 currentBuffer = await loadFile(index);
                 trackTitle.textContent = playlist[index].name;
                 renderPlaylist();
                 updateTimeDisplay();
-            } catch(e) { trackTitle.textContent = 'Ошибка'; }
+
+                if (!skipAutoPlay && currentBuffer) {
+                    // Небольшая задержка чтобы старый источник точно отключился
+                    setTimeout(() => startSource(0), 10);
+                }
+            } catch(e) {
+                trackTitle.textContent = 'Ошибка';
+                console.error(e);
+                currentBuffer = null;
+                currentIndex = -1;
+            }
         }
 
         function actionSeekTo(percent) {
@@ -674,7 +865,6 @@
         btnPrev.onclick = actionRewind;
         btnNext.onclick = actionForward;
         chkGapless.onchange = saveSettings;
-
 
         let seekStart = false;
         seekBar.onpointerdown = () => { if (currentBuffer) { seekStart = true; killAllSources(); isPlaying = false; } };
@@ -699,9 +889,11 @@
 
         function formatTime(s) { const m = Math.floor(s / 60), sec = Math.floor(s % 60); return `${m}:${sec.toString().padStart(2,'0')}`; }
 
-        async function processFiles(files) {
+        async function processFiles(files, appendMode = false) {
+            if (!files || files.length === 0) return;
+
             showLoader('🎵 Обработка треков...', 'Подготовка...');
-            if (!fullPlaylist) fullPlaylist = [];
+
             const audioFiles = [], cueFiles = [];
 
             for (const file of files) {
@@ -712,16 +904,26 @@
 
             updateLoaderProgress(30, `Найдено: ${audioFiles.length} аудио, ${cueFiles.length} cue`);
 
+            const newPlaylist = [];
+
             for (const cue of cueFiles) {
                 try {
                     const text = await cue.text();
-                    const tracks = parseCue(text);
+                    const tracks = parseCueAdvanced(text);
                     if (!tracks.length) continue;
                     const cueBase = cue.name.replace(/\.cue$/i, '');
-                    let matched = audioFiles.find(a => a.name.replace(/\.[^.]+$/, '').toLowerCase() === cueBase.toLowerCase());
+                    let matched = audioFiles.find(a => {
+                        const aBase = a.name.replace(/\.[^.]+$/, '').toLowerCase();
+                        return aBase === cueBase.toLowerCase() ||
+                               aBase.includes(cueBase.toLowerCase()) ||
+                               cueBase.toLowerCase().includes(aBase);
+                    });
+                    if (!matched && audioFiles.length === 1) {
+                        matched = audioFiles[0];
+                    }
                     if (matched) {
                         tracks.forEach((track, idx) => {
-                            fullPlaylist.push({
+                            newPlaylist.push({
                                 name: track.performer ? `${track.performer} — ${track.title}` : `${track.number}. ${track.title}`,
                                 file: matched,
                                 isCue: true,
@@ -730,12 +932,31 @@
                             });
                         });
                     }
-                } catch(e) {}
+                } catch(e) { console.warn('Ошибка парсинга CUE:', cue.name, e); }
             }
 
-            const usedFiles = new Set(fullPlaylist.map(t => t.file));
+            const usedFiles = new Set(newPlaylist.map(t => t.file));
             for (const audio of audioFiles) {
-                if (!usedFiles.has(audio)) fullPlaylist.push({ name: audio.name, file: audio, isCue: false });
+                if (!usedFiles.has(audio)) {
+                    newPlaylist.push({ name: audio.name, file: audio, isCue: false });
+                }
+            }
+
+            // ========== ГЛАВНЫЙ ФИКС: добавляем или заменяем ==========
+            if (appendMode && fullPlaylist.length > 0) {
+                // Добавляем новые треки к существующим
+                fullPlaylist = [...fullPlaylist, ...newPlaylist];
+                // Убираем дубликаты (по имени файла + CUE старт)
+                const seen = new Set();
+                fullPlaylist = fullPlaylist.filter(item => {
+                    const key = item.isCue ? `${item.file.name}_${item.cueStart}` : item.file.name;
+                    if (seen.has(key)) return false;
+                    seen.add(key);
+                    return true;
+                });
+            } else {
+                // Полная замена
+                fullPlaylist = newPlaylist;
             }
 
             fullPlaylist.sort((a,b) => a.name.localeCompare(b.name));
@@ -744,27 +965,53 @@
             resetPlayer();
             renderPlaylist();
             applySearchFilter();
+            savePlaylistToStorage();
 
-            // Фоновое декодирование FLAC
-            const flacFiles = fullPlaylist.filter(item =>
-                item.file.name.endsWith('.flac') && !bufferCache.has(item.file.name) && item.file.size > 50 * 1024 * 1024
-            );
+            // Декодируем только FLAC и большие WAV (MP3 и другие не трогаем)
+            const toDecode = fullPlaylist.filter(item => {
+                const ext = item.file.name.split('.').pop().toLowerCase();
+                return ext === 'flac' || (ext === 'wav' && item.file.size > 20 * 1024 * 1024);
+            });
 
-            if (flacFiles.length > 0) {
-                showLoader('🎵 Декодирование FLAC...', `0 из ${flacFiles.length}`);
-                for (let i = 0; i < flacFiles.length; i++) {
-                    const item = flacFiles[i];
-                    const index = fullPlaylist.findIndex(fi => fi.file === item.file);
-                    if (index !== -1 && !bufferCache.has(item.file.name)) {
-                        try {
-                            updateLoaderProgress((i / flacFiles.length) * 100, `Декодирование: ${i+1} из ${flacFiles.length} — ${item.name.substring(0, 40)}`);
-                            await loadFile(index);
-                        } catch(e) {
-                            console.warn(`Не удалось декодировать ${item.name}:`, e);
-                        }
+            if (toDecode.length > 0 && !isDecodingInProgress) {
+                isDecodingInProgress = true;
+                showLoader('🎵 Декодирование FLAC/WAV...', `0 из ${toDecode.length}`);
+
+                for (let i = 0; i < toDecode.length; i++) {
+                    const item = toDecode[i];
+                    const cacheKey = item.isCue ?
+                        `${item.file.name}_${item.cueStart}_${item.cueEnd}` :
+                        item.file.name;
+
+                    if (bufferCache.has(cacheKey)) continue;
+
+                    const idx = fullPlaylist.findIndex(f => f === item);
+                    updateLoaderProgress(
+                        Math.floor((i / toDecode.length) * 100),
+                        `Декодирование: ${i+1} из ${toDecode.length} — ${item.name.substring(0, 35)}`
+                    );
+
+                    await new Promise(r => setTimeout(r, 5));
+
+                    try {
+                        const savedPlaylist = playlist;
+                        playlist = fullPlaylist;
+                        await loadFile(idx);
+                        playlist = savedPlaylist;
+                    } catch(e) {
+                        console.warn(`Не удалось декодировать: ${item.name}`, e);
                     }
                 }
+
+                isDecodingInProgress = false;
                 hideLoader();
+
+                if (currentIndex !== -1 && playlist[currentIndex]) {
+                    try {
+                        currentBuffer = await loadFile(currentIndex);
+                        updateTimeDisplay();
+                    } catch(e) {}
+                }
             } else {
                 hideLoader();
             }
@@ -772,7 +1019,7 @@
 
         function resetPlayer() { killAllSources(); isPlaying = false; btnPlay.textContent = '▶️'; currentBuffer = null; currentIndex = -1; pausedAt = 0; seekBar.value = 0; trackTitle.textContent = 'Нет трека'; updateTimeDisplay(); }
 
-         function renderPlaylist() {
+function renderPlaylist() {
             playlistEl.innerHTML = '';
             for (let i = 0; i < playlist.length; i++) {
                 const item = playlist[i];
@@ -783,37 +1030,83 @@
                 li.style.cursor = 'pointer';
                 li.style.gap = '6px';
                 li.draggable = true;
+                li.dataset.index = i;
 
-                // Drag-and-drop события
-                li.ondragstart = (e) => {
-                    e.dataTransfer.setData('text/plain', i);
-                    li.style.opacity = '0.5';
+                // Чекбокс
+                const cb = document.createElement('input');
+                cb.type = 'checkbox';
+                cb.style.width = '20px';
+                cb.style.height = '20px';
+                cb.style.margin = '0';
+                cb.style.cursor = 'pointer';
+                cb.style.display = 'none';
+                cb.classList.add('playlist-checkbox');
+                cb.onclick = (e) => e.stopPropagation();
+                cb.onchange = () => {
+                    if (cb.checked) selectedIndices.add(i);
+                    else selectedIndices.delete(i);
+                    updateSelectionTools();
                 };
-                li.ondragend = (e) => {
-                    li.style.opacity = '1';
+
+                // Длинное нажатие (мобила)
+                let pressTimer;
+                li.ontouchstart = (e) => {
+                    pressTimer = setTimeout(() => {
+                        selectionMode = true;
+                        selectionTools.style.display = 'flex';
+                        document.querySelectorAll('#playlist li .playlist-checkbox').forEach(cb => {
+                            cb.style.display = 'inline-block';
+                        });
+                        if (!selectedIndices.has(i)) {
+                            cb.checked = true;
+                            selectedIndices.add(i);
+                        }
+                        cb.style.display = 'inline-block';
+                        updateSelectionTools();
+                        e.preventDefault();
+                    }, 500);
                 };
-                li.ondragover = (e) => e.preventDefault();
-                li.ondrop = (e) => {
-                    e.preventDefault();
-                    const fromIndex = parseInt(e.dataTransfer.getData('text/plain'));
-                    const toIndex = i;
-                    if (fromIndex !== toIndex) {
-                        const moved = playlist[fromIndex];
-                        playlist.splice(fromIndex, 1);
-                        playlist.splice(toIndex, 0, moved);
-                        // Обновляем fullPlaylist
-                        fullPlaylist = [...playlist];
-                        renderPlaylist();
-                        if (currentIndex === fromIndex) currentIndex = toIndex;
-                        else if (currentIndex > fromIndex && currentIndex <= toIndex) currentIndex--;
-                        else if (currentIndex < fromIndex && currentIndex >= toIndex) currentIndex++;
+                li.ontouchend = () => {
+                    clearTimeout(pressTimer);
+                    if (!selectionMode && selectedIndices.size === 0) {
+                        actionSelectTrack(i);
                     }
+                };
+                li.ontouchmove = () => {
+                    clearTimeout(pressTimer);
+                };
+
+                // Для мыши
+                li.onmousedown = (e) => {
+                    if (e.button !== 0) return;
+                    pressTimer = setTimeout(() => {
+                        selectionMode = true;
+                        selectionTools.style.display = 'flex';
+                        document.querySelectorAll('#playlist li .playlist-checkbox').forEach(cb => {
+                            cb.style.display = 'inline-block';
+                        });
+                        if (!selectedIndices.has(i)) {
+                            cb.checked = true;
+                            selectedIndices.add(i);
+                        }
+                        cb.style.display = 'inline-block';
+                        updateSelectionTools();
+                    }, 500);
+                };
+                li.onmouseup = () => {
+                    clearTimeout(pressTimer);
+                    if (!selectionMode && selectedIndices.size === 0) {
+                        actionSelectTrack(i);
+                    }
+                };
+                li.onmouseleave = () => {
+                    clearTimeout(pressTimer);
                 };
 
                 const span = document.createElement('span');
                 span.innerHTML = item.isCue ? `${escapeHtml(item.name)} <span class="cue-badge">CUE</span>` : escapeHtml(item.name);
                 span.style.flex = '1';
-                span.onclick = (() => actionSelectTrack(i));
+                span.onclick = (e) => e.stopPropagation();
 
                 const btnUp = document.createElement('button');
                 btnUp.textContent = '▲';
@@ -825,12 +1118,14 @@
                 btnUp.style.padding = '4px 6px';
                 btnUp.onclick = (e) => {
                     e.stopPropagation();
+                    if (selectionMode) return;
                     if (i > 0) {
                         [playlist[i-1], playlist[i]] = [playlist[i], playlist[i-1]];
                         fullPlaylist = [...playlist];
                         renderPlaylist();
                         if (currentIndex === i) currentIndex = i-1;
                         else if (currentIndex === i-1) currentIndex = i;
+                        savePlaylistToStorage();
                     }
                 };
 
@@ -844,12 +1139,14 @@
                 btnDown.style.padding = '4px 6px';
                 btnDown.onclick = (e) => {
                     e.stopPropagation();
+                    if (selectionMode) return;
                     if (i < playlist.length - 1) {
                         [playlist[i], playlist[i+1]] = [playlist[i+1], playlist[i]];
                         fullPlaylist = [...playlist];
                         renderPlaylist();
                         if (currentIndex === i) currentIndex = i+1;
                         else if (currentIndex === i+1) currentIndex = i;
+                        savePlaylistToStorage();
                     }
                 };
 
@@ -862,7 +1159,6 @@
                 delBtn.style.fontWeight = 'bold';
                 delBtn.style.cursor = 'pointer';
                 delBtn.style.minWidth = '48px';
-
                 if (i === currentIndex) {
                     delBtn.style.color = '#fff';
                     delBtn.style.background = 'rgba(255, 255, 255, 0.2)';
@@ -870,11 +1166,10 @@
                     delBtn.style.color = '#e94560';
                     delBtn.style.background = 'rgba(233, 69, 96, 0.15)';
                 }
-
                 delBtn.onclick = (e) => {
                     e.stopPropagation();
                     if (confirm(`Удалить "${item.name}"?`)) {
-                        const globalIndex = fullPlaylist.findIndex(fi => fi.file === item.file);
+                        const globalIndex = fullPlaylist.findIndex(fi => fi.file === item.file && fi.cueStart === item.cueStart);
                         if (globalIndex !== -1) fullPlaylist.splice(globalIndex, 1);
                         filterPlaylist();
                         folderNameEl.textContent = `🎵 ${fullPlaylist.length} треков`;
@@ -888,9 +1183,15 @@
                             folderNameEl.textContent = 'Не выбрано';
                             playlistStats.textContent = '';
                         }
+                        savePlaylistToStorage();
+                        if (bufferCache.has(item.file.name)) bufferCache.delete(item.file.name);
+                        selectedIndices.clear();
+                        selectionMode = false;
+                        selectionTools.style.display = 'none';
                     }
                 };
 
+                li.appendChild(cb);
                 li.appendChild(span);
                 li.appendChild(btnUp);
                 li.appendChild(btnDown);
@@ -915,7 +1216,66 @@
         btnSelect.onclick = () => {
             fileInput.value = '';
             fileInput.onchange = async (e) => {
-                if (e.target.files.length) await processFiles(Array.from(e.target.files));
+                if (e.target.files.length) {
+                    await processFiles(Array.from(e.target.files), true); // ДОБАВЛЯЕМ
+                }
+            };
+            fileInput.click();
+        };
+
+        btnClearPlaylist.onclick = () => {
+            if (confirm('Очистить весь плейлист?')) {
+                fullPlaylist = [];
+                playlist = [];
+                currentIndex = -1;
+                currentBuffer = null;
+                isPlaying = false;
+                btnPlay.textContent = '▶️';
+                pausedAt = 0;
+                seekBar.value = 0;
+                trackTitle.textContent = 'Нет трека';
+                folderNameEl.textContent = 'Не выбрано';
+                renderPlaylist();
+                updateTimeDisplay();
+                playlistStats.textContent = '';
+                bufferCache.clear();
+                localStorage.removeItem('saved-playlist');
+            }
+        };
+
+        btnSelectFolderAll.onclick = async () => {
+            if (window.showDirectoryPicker) {
+                try {
+                    const dirHandle = await window.showDirectoryPicker();
+                    const files = [];
+                    for await (const entry of dirHandle.values()) {
+                        if (entry.kind === 'file') {
+                            const file = await entry.getFile();
+                            const ext = file.name.split('.').pop().toLowerCase();
+                            if (['mp3','flac','wav','ogg','m4a','opus','aac','cue'].includes(ext)) {
+                                files.push(file);
+                            }
+                        }
+                    }
+                    if (files.length) {
+                        await processFiles(files, true); // ДОБАВЛЯЕМ
+                    } else {
+                        folderNameEl.textContent = '❌ Нет аудиофайлов в папке';
+                        setTimeout(() => {
+                            if (fullPlaylist.length) folderNameEl.textContent = `🎵 ${fullPlaylist.length} треков`;
+                            else folderNameEl.textContent = 'Не выбрано';
+                        }, 2000);
+                    }
+                    return;
+                } catch(e) {
+                    console.log('Выбор папки отменён:', e);
+                }
+            }
+            fileInput.value = '';
+            fileInput.onchange = async (e) => {
+                if (e.target.files.length) {
+                    await processFiles(Array.from(e.target.files), true); // ДОБАВЛЯЕМ
+                }
             };
             fileInput.click();
         };
@@ -1071,62 +1431,70 @@
                 document.getElementById(`tab-${tab.dataset.tab}`).classList.add('active');
             };
         });
-
-        btnClearPlaylist.onclick = () => {
-            if (confirm('Очистить весь плейлист?')) {
-                fullPlaylist = [];
-                playlist = [];
-                currentIndex = -1;
-                currentBuffer = null;
-                isPlaying = false;
-                btnPlay.textContent = '▶️';
-                pausedAt = 0;
-                seekBar.value = 0;
-                trackTitle.textContent = 'Нет трека';
-                folderNameEl.textContent = 'Не выбрано';
-                renderPlaylist();
-                updateTimeDisplay();
-                playlistStats.textContent = '';
+        function updateSelectionTools() {
+            if (selectedIndices.size > 0) {
+                selectionTools.style.display = 'flex';
+            } else if (!selectionMode) {
+                selectionTools.style.display = 'none';
+                document.querySelectorAll('#playlist li .playlist-checkbox').forEach(cb => {
+                    cb.style.display = 'none';
+                    cb.checked = false;
+                });
+                selectionMode = false;
             }
-        };
-        btnSelectFolderAll.onclick = async () => {
-            // Проверяем, поддерживается ли showDirectoryPicker
-            if (window.showDirectoryPicker) {
-                try {
-                    const dirHandle = await window.showDirectoryPicker();
-                    const files = [];
-                    for await (const entry of dirHandle.values()) {
-                        if (entry.kind === 'file') {
-                            const file = await entry.getFile();
-                            const ext = file.name.split('.').pop().toLowerCase();
-                            if (['mp3','flac','wav','ogg','m4a','opus','aac'].includes(ext)) {
-                                files.push(file);
-                            }
-                        }
-                    }
-                    if (files.length) await processFiles(files);
-                    return;
-                } catch(e) {
-                    console.log('Выбор папки отменён', e);
-                    // Если пользователь отменил — просто выходим
-                    if (e.name !== 'AbortError') {
-                        // Пробуем запасной вариант
-                    }
+        }
+
+        function moveSelectedTracks(direction) {
+            if (selectedIndices.size === 0) return;
+
+            const sortedIndices = Array.from(selectedIndices).sort((a,b) => direction === 'up' ? a - b : b - a);
+
+            for (const idx of sortedIndices) {
+                let newIdx = direction === 'up' ? idx - 1 : idx + 1;
+                if (newIdx < 0 || newIdx >= playlist.length) continue;
+
+                [playlist[idx], playlist[newIdx]] = [playlist[newIdx], playlist[idx]];
+
+                selectedIndices.delete(idx);
+                selectedIndices.add(newIdx);
+            }
+
+            fullPlaylist = [...playlist];
+            renderPlaylist();
+
+            document.querySelectorAll('#playlist li .playlist-checkbox').forEach((cb, idx) => {
+                if (selectedIndices.has(idx)) {
+                    cb.checked = true;
+                    cb.style.display = 'inline-block';
                 }
-            }
+            });
 
-            // ЗАПАСНОЙ ВАРИАНТ: выбираем несколько файлов через input
-            fileInput.value = '';
-            fileInput.onchange = async (e) => {
-                if (e.target.files.length) await processFiles(Array.from(e.target.files));
-            };
-            fileInput.click();
+            savePlaylistToStorage();
+        }
+
+        btnMoveUpGroup.onclick = () => moveSelectedTracks('up');
+        btnMoveDownGroup.onclick = () => moveSelectedTracks('down');
+        btnClearSelection.onclick = () => {
+            selectedIndices.clear();
+            selectionMode = false;
+            selectionTools.style.display = 'none';
+            document.querySelectorAll('#playlist li .playlist-checkbox').forEach(cb => {
+                cb.style.display = 'none';
+                cb.checked = false;
+            });
         };
+        function flushAllSources() {
+            if (currentSource) {
+                try { currentSource.stop(); } catch(e) {}
+                try { currentSource.disconnect(); } catch(e) {}
+                currentSource = null;
+            }
+        }
+
         loadSettings();
         buildEQ();
         initPresets();
         loadFavorites();
-        setInterval(() => { if (isPlaying) localStorage.setItem('player-playback', JSON.stringify({ trackName: playlist[currentIndex]?.name || '', position: getCurrentTime() })); }, 5000);
     </script>
 </body>
 </html>
