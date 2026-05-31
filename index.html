@@ -165,6 +165,7 @@
     <div id="tab-audio" class="tab-content active">
         <div id="folder-section">
             <button id="btn-select-folder">🎵 Выбрать треки</button>
+            <button id="btn-select-folder-all">📁 Выбрать папку (все файлы)</button>
             <button id="btn-clear-playlist" style="background:#e94560;">🗑 Очистить список</button>
             <input type="file" id="file-input" multiple accept="audio/*" style="display:none;">
             <span id="folder-name">Не выбрано</span>
@@ -280,6 +281,8 @@
         const loaderFill = document.getElementById('loader-fill');
         const loaderDetail = document.getElementById('loader-detail');
         const btnClearPlaylist = document.getElementById('btn-clear-playlist');
+        const btnSelectFolderAll = document.getElementById('btn-select-folder-all');
+
 
         let audioContext = null;
         let fullPlaylist = [];
@@ -507,6 +510,9 @@
             try {
                 const ab = await item.file.arrayBuffer();
                 const ctx = initAudio();
+                if (item.file.name.endsWith('.flac') && item.file.size > 50 * 1024 * 1024) {
+                    showLoader('🎵 Декодирование FLAC...', 'Это может занять 10-30 секунд');
+                }
                 const fullBuffer = await ctx.decodeAudioData(ab);
                 let resultBuffer = fullBuffer;
                 if (item.isCue && item.cueStart !== null) {
@@ -523,6 +529,9 @@
                 }
                 if (bufferCache.size > MAX_CACHE) bufferCache.delete(bufferCache.keys().next().value);
                 bufferCache.set(cacheKey, resultBuffer);
+                if (item.file.name.endsWith('.flac') && item.file.size > 50 * 1024 * 1024) {
+                    hideLoader();
+                }
                 return resultBuffer;
             } finally { isLoadingTrack = false; }
         }
@@ -666,6 +675,7 @@
         btnNext.onclick = actionForward;
         chkGapless.onchange = saveSettings;
 
+
         let seekStart = false;
         seekBar.onpointerdown = () => { if (currentBuffer) { seekStart = true; killAllSources(); isPlaying = false; } };
         seekBar.oninput = () => { if (currentBuffer && seekStart) { pausedAt = (parseFloat(seekBar.value) / 100) * currentBuffer.duration; updateTimeDisplay(); } };
@@ -734,12 +744,35 @@
             resetPlayer();
             renderPlaylist();
             applySearchFilter();
-            hideLoader();
+
+            // Фоновое декодирование FLAC
+            const flacFiles = fullPlaylist.filter(item =>
+                item.file.name.endsWith('.flac') && !bufferCache.has(item.file.name) && item.file.size > 50 * 1024 * 1024
+            );
+
+            if (flacFiles.length > 0) {
+                showLoader('🎵 Декодирование FLAC...', `0 из ${flacFiles.length}`);
+                for (let i = 0; i < flacFiles.length; i++) {
+                    const item = flacFiles[i];
+                    const index = fullPlaylist.findIndex(fi => fi.file === item.file);
+                    if (index !== -1 && !bufferCache.has(item.file.name)) {
+                        try {
+                            updateLoaderProgress((i / flacFiles.length) * 100, `Декодирование: ${i+1} из ${flacFiles.length} — ${item.name.substring(0, 40)}`);
+                            await loadFile(index);
+                        } catch(e) {
+                            console.warn(`Не удалось декодировать ${item.name}:`, e);
+                        }
+                    }
+                }
+                hideLoader();
+            } else {
+                hideLoader();
+            }
         }
 
         function resetPlayer() { killAllSources(); isPlaying = false; btnPlay.textContent = '▶️'; currentBuffer = null; currentIndex = -1; pausedAt = 0; seekBar.value = 0; trackTitle.textContent = 'Нет трека'; updateTimeDisplay(); }
 
-        function renderPlaylist() {
+         function renderPlaylist() {
             playlistEl.innerHTML = '';
             for (let i = 0; i < playlist.length; i++) {
                 const item = playlist[i];
@@ -748,21 +781,87 @@
                 li.style.justifyContent = 'space-between';
                 li.style.alignItems = 'center';
                 li.style.cursor = 'pointer';
-                li.onclick = (() => actionSelectTrack(i));
+                li.style.gap = '6px';
+                li.draggable = true;
+
+                // Drag-and-drop события
+                li.ondragstart = (e) => {
+                    e.dataTransfer.setData('text/plain', i);
+                    li.style.opacity = '0.5';
+                };
+                li.ondragend = (e) => {
+                    li.style.opacity = '1';
+                };
+                li.ondragover = (e) => e.preventDefault();
+                li.ondrop = (e) => {
+                    e.preventDefault();
+                    const fromIndex = parseInt(e.dataTransfer.getData('text/plain'));
+                    const toIndex = i;
+                    if (fromIndex !== toIndex) {
+                        const moved = playlist[fromIndex];
+                        playlist.splice(fromIndex, 1);
+                        playlist.splice(toIndex, 0, moved);
+                        // Обновляем fullPlaylist
+                        fullPlaylist = [...playlist];
+                        renderPlaylist();
+                        if (currentIndex === fromIndex) currentIndex = toIndex;
+                        else if (currentIndex > fromIndex && currentIndex <= toIndex) currentIndex--;
+                        else if (currentIndex < fromIndex && currentIndex >= toIndex) currentIndex++;
+                    }
+                };
 
                 const span = document.createElement('span');
                 span.innerHTML = item.isCue ? `${escapeHtml(item.name)} <span class="cue-badge">CUE</span>` : escapeHtml(item.name);
                 span.style.flex = '1';
+                span.onclick = (() => actionSelectTrack(i));
+
+                const btnUp = document.createElement('button');
+                btnUp.textContent = '▲';
+                btnUp.style.background = 'none';
+                btnUp.style.border = 'none';
+                btnUp.style.color = 'var(--text2)';
+                btnUp.style.fontSize = '1rem';
+                btnUp.style.cursor = 'pointer';
+                btnUp.style.padding = '4px 6px';
+                btnUp.onclick = (e) => {
+                    e.stopPropagation();
+                    if (i > 0) {
+                        [playlist[i-1], playlist[i]] = [playlist[i], playlist[i-1]];
+                        fullPlaylist = [...playlist];
+                        renderPlaylist();
+                        if (currentIndex === i) currentIndex = i-1;
+                        else if (currentIndex === i-1) currentIndex = i;
+                    }
+                };
+
+                const btnDown = document.createElement('button');
+                btnDown.textContent = '▼';
+                btnDown.style.background = 'none';
+                btnDown.style.border = 'none';
+                btnDown.style.color = 'var(--text2)';
+                btnDown.style.fontSize = '1rem';
+                btnDown.style.cursor = 'pointer';
+                btnDown.style.padding = '4px 6px';
+                btnDown.onclick = (e) => {
+                    e.stopPropagation();
+                    if (i < playlist.length - 1) {
+                        [playlist[i], playlist[i+1]] = [playlist[i+1], playlist[i]];
+                        fullPlaylist = [...playlist];
+                        renderPlaylist();
+                        if (currentIndex === i) currentIndex = i+1;
+                        else if (currentIndex === i+1) currentIndex = i;
+                    }
+                };
 
                 const delBtn = document.createElement('button');
                 delBtn.textContent = '🗑';
                 delBtn.style.border = 'none';
                 delBtn.style.borderRadius = '6px';
-                delBtn.style.padding = '4px 10px';
+                delBtn.style.padding = '4px 8px';
                 delBtn.style.fontSize = '0.85rem';
                 delBtn.style.fontWeight = 'bold';
                 delBtn.style.cursor = 'pointer';
-                delBtn.style.minWidth = '52px';
+                delBtn.style.minWidth = '48px';
 
                 if (i === currentIndex) {
                     delBtn.style.color = '#fff';
@@ -776,9 +875,7 @@
                     e.stopPropagation();
                     if (confirm(`Удалить "${item.name}"?`)) {
                         const globalIndex = fullPlaylist.findIndex(fi => fi.file === item.file);
-                        if (globalIndex !== -1) {
-                            fullPlaylist.splice(globalIndex, 1);
-                        }
+                        if (globalIndex !== -1) fullPlaylist.splice(globalIndex, 1);
                         filterPlaylist();
                         folderNameEl.textContent = `🎵 ${fullPlaylist.length} треков`;
                         if (currentIndex === i) {
@@ -786,9 +883,7 @@
                             currentIndex = -1;
                             currentBuffer = null;
                             trackTitle.textContent = 'Нет трека';
-                        } else if (currentIndex > i) {
-                            currentIndex--;
-                        }
+                        } else if (currentIndex > i) currentIndex--;
                         if (fullPlaylist.length === 0) {
                             folderNameEl.textContent = 'Не выбрано';
                             playlistStats.textContent = '';
@@ -797,6 +892,8 @@
                 };
 
                 li.appendChild(span);
+                li.appendChild(btnUp);
+                li.appendChild(btnDown);
                 li.appendChild(delBtn);
                 if (i === currentIndex) li.classList.add('active');
                 playlistEl.appendChild(li);
@@ -992,7 +1089,24 @@
                 playlistStats.textContent = '';
             }
         };
-
+        btnSelectFolderAll.onclick = async () => {
+            try {
+                const dirHandle = await window.showDirectoryPicker();
+                const files = [];
+                for await (const entry of dirHandle.values()) {
+                    if (entry.kind === 'file') {
+                        const file = await entry.getFile();
+                        const ext = file.name.split('.').pop().toLowerCase();
+                        if (['mp3','flac','wav','ogg','m4a','opus','aac'].includes(ext)) {
+                            files.push(file);
+                        }
+                    }
+                }
+                if (files.length) await processFiles(files);
+            } catch(e) {
+                console.log('Выбор папки отменён или недоступен', e);
+            }
+        };
         loadSettings();
         buildEQ();
         initPresets();
