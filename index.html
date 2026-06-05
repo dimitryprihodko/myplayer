@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
     <meta name="theme-color" content="#16213e">
-    <title>Audio Player Pro</title>
+    <title>Audio Player Pro — Дерево + Радио</title>
     <style>
         :root {
             --bg: #1a1a2e;
@@ -21,7 +21,7 @@
             font-family: 'Segoe UI', system-ui, sans-serif;
             min-height: 100vh;
             padding: 16px;
-            max-width: 550px;
+            max-width: 650px;
             margin: 0 auto;
             -webkit-tap-highlight-color: transparent;
         }
@@ -36,210 +36,193 @@
         .tab-content { display: none; }
         .tab-content.active { display: block; }
         button {
-            background: var(--accent); color: var(--text); border: none;
-            padding: 8px 14px; border-radius: 8px; font-size: 0.9rem;
+            background: var(--accent);
+            color: var(--text);
+            border: none;
+            padding: 8px 14px;
+            border-radius: 8px;
+            font-size: 0.9rem;
             cursor: pointer;
         }
         button:active { transform: scale(0.97); background: var(--highlight); }
-
-        #folder-section { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 8px; }
-        #folder-name { color: var(--text2); font-size: 0.75rem; flex: 1; word-break: break-all; }
-
-        #playlist-search-section { margin-bottom: 8px; display: flex; gap: 8px; }
-        #playlist-search {
+        .toolbar {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            margin: 12px 0;
+            align-items: center;
+            justify-content: space-between;
+        }
+        .left-buttons { display: flex; gap: 8px; flex-wrap: wrap; }
+        .right-buttons { display: flex; gap: 8px; }
+        .folder-info {
+            font-size: 0.7rem;
+            color: var(--text2);
+            background: rgba(0,0,0,0.3);
+            padding: 6px 10px;
+            border-radius: 20px;
+            text-align: center;
+            word-break: break-all;
+            cursor: pointer;
+        }
+        .folder-info:hover { background: var(--accent); }
+        #search-section {
+            display: flex;
+            gap: 8px;
+            margin: 10px 0;
+        }
+        #tree-search {
             flex: 1;
-            background: #16213e;
-            border: 1px solid #0f3460;
+            background: var(--surface);
+            border: 1px solid var(--accent);
             border-radius: 20px;
             padding: 8px 12px;
             color: var(--text);
             font-size: 0.8rem;
         }
-        #playlist-search::placeholder { color: var(--text2); }
-        #playlist-search-clear {
-            background: var(--accent);
-            padding: 8px 12px;
-            border-radius: 20px;
-            font-size: 0.7rem;
-        }
-
-        #loading-overlay {
-            position: fixed;
-            top: 0;
-            left: 0;
-            right: 0;
-            bottom: 0;
-            background: rgba(0,0,0,0.85);
-            backdrop-filter: blur(8px);
-            display: flex;
-            flex-direction: column;
-            justify-content: center;
-            align-items: center;
-            z-index: 1000;
-            visibility: hidden;
-        }
-        #loading-overlay.active { visibility: visible; }
-        .loader-text { font-size: 1rem; margin-bottom: 16px; color: var(--highlight); }
-        .loader-bar { width: 80%; max-width: 300px; height: 4px; background: var(--accent); border-radius: 4px; overflow: hidden; }
-        .loader-fill { width: 0%; height: 100%; background: var(--highlight); transition: width 0.2s; }
-        .loader-detail { font-size: 0.7rem; color: var(--text2); margin-top: 12px; }
-
-        #playlist {
-            list-style: none;
-            max-height: 250px;
-            overflow-y: auto;
+        #tree-search::placeholder { color: var(--text2); }
+        #tree-container {
             background: var(--surface);
-            border-radius: 8px;
-            margin-bottom: 10px;
+            border-radius: 12px;
+            max-height: 32vh;
+            overflow-y: auto;
+            padding: 8px 6px;
+            margin: 8px 0;
         }
-        #playlist li {
-            padding: 10px 14px;
-            border-bottom: 1px solid var(--accent);
+        .tree-node { margin-left: 0; list-style: none; }
+        .tree-folder, .tree-file {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 10px;
+            border-radius: 10px;
             cursor: pointer;
             font-size: 0.85rem;
         }
-        #playlist li:active { background: var(--highlight); }
-        #playlist li.active { background: var(--highlight); }
-        #playlist li .cue-badge { font-size: 0.65rem; background: #0f3460; padding: 1px 5px; border-radius: 4px; margin-left: 6px; }
-        #now-playing { text-align: center; margin-bottom: 8px; }
-        #track-title { font-weight: 600; font-size: 0.9rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-        #track-time { color: var(--text2); font-size: 0.8rem; }
-        #controls { display: flex; justify-content: center; gap: 6px; flex-wrap: wrap; margin-bottom: 8px; }
-        #seek-bar { width: 100%; margin: 4px 0; }
-        #chk-gapless-row { display: flex; align-items: center; gap: 6px; font-size: 0.75rem; color: #aaa; margin: 4px 0; }
-        #effects-panel { margin-top: 12px; padding-top: 8px; border-top: 1px solid var(--accent); }
-        #effects-panel h2 { font-size: 0.95rem; margin-bottom: 6px; }
-        #effects-panel label { display: flex; justify-content: space-between; font-size: 0.8rem; margin-top: 4px; color: var(--text2); }
-        #effects-panel input[type="range"] { width: 100%; }
-        .preset-btns { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
-        .preset-btns button { font-size: 0.7rem; padding: 4px 8px; }
-        .preset-tip { font-size: 0.7rem; color: var(--text2); margin-top: 2px; }
-        #eq-bands { display: flex; gap: 4px; align-items: flex-end; height: 100px; margin-top: 6px; }
-        .eq-band { flex: 1; display: flex; flex-direction: column; align-items: center; }
-        .eq-band input { writing-mode: vertical-lr; direction: rtl; height: 75px; width: 18px; }
-        .eq-band span { font-size: 0.55rem; color: var(--text2); margin-top: 2px; }
-        #radio-section input, #radio-section select {
-            background: #16213e; color: #eee; border: 1px solid #0f3460;
-            border-radius: 6px; padding: 10px; font-size: 0.85rem; width: 100%; margin-bottom: 8px;
+        .tree-folder:active, .tree-file:active { background: var(--accent); }
+        .tree-folder { font-weight: 500; color: #ffd966; }
+        .tree-file { color: var(--text); }
+        .tree-file.active-track { background: var(--highlight); color: white; }
+        .tree-children {
+            margin-left: 24px;
+            display: none;
+            border-left: 1px dashed var(--accent);
         }
-        .radio-controls { display: flex; gap: 8px; margin-top: 8px; }
-        .radio-controls button { flex: 1; }
-        #radio-status { font-size: 0.8rem; color: #aaa; margin-top: 8px; text-align: center; }
-        details { margin-top: 6px; font-size: 0.75rem; }
-        details summary { cursor: pointer; color: var(--highlight); }
-        .search-row { display: flex; gap: 8px; margin-bottom: 8px; }
-        .search-row input { flex: 1; margin-bottom: 0; }
-        .spinner { display: inline-block; width: 14px; height: 14px; border: 2px solid #fff; border-top-color: transparent; border-radius: 50%; animation: spin 0.6s linear infinite; margin-left: 8px; vertical-align: middle; }
-        @keyframes spin { to { transform: rotate(360deg); } }
+        .tree-children.open { display: block; }
+        .up-button { background: var(--highlight); display: inline-flex; align-items: center; gap: 6px; }
+        .now-playing-card {
+            background: var(--surface);
+            border-radius: 14px;
+            padding: 10px 16px;
+            margin: 12px 0 8px;
+            text-align: center;
+        }
+        #track-title { font-weight: 600; font-size: 0.95rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        #track-time { font-size: 0.75rem; color: var(--text2); margin-top: 4px; }
+        .controls { display: flex; justify-content: center; gap: 12px; margin: 12px 0; }
+        .controls button { padding: 10px 18px; font-size: 1.2rem; }
+        #seek-bar { width: 100%; margin: 6px 0; }
+        .gapless-row { display: flex; align-items: center; justify-content: center; gap: 8px; margin-top: 6px; font-size: 0.75rem; }
+        .effects-panel {
+            margin-top: 14px;
+            padding-top: 8px;
+            border-top: 1px solid var(--accent);
+        }
+        .effects-panel h2 { font-size: 0.95rem; margin-bottom: 8px; }
+        .effects-panel label { display: flex; justify-content: space-between; font-size: 0.8rem; margin-top: 6px; color: var(--text2); }
+        .effects-panel input[type="range"] { width: 100%; }
+        .preset-btns { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0 4px; }
+        .preset-btns button { font-size: 0.7rem; padding: 4px 10px; }
+        .preset-tip { font-size: 0.65rem; color: var(--highlight); margin-top: 2px; }
+        #eq-bands { display: flex; gap: 4px; align-items: flex-end; height: 90px; margin-top: 8px; }
+        .eq-band { flex: 1; display: flex; flex-direction: column; align-items: center; }
+        .eq-band input { writing-mode: vertical-lr; direction: rtl; height: 70px; width: 18px; }
+        .eq-band span { font-size: 0.55rem; color: var(--text2); margin-top: 3px; }
+        details { margin-top: 8px; font-size: 0.7rem; }
+        details summary { color: var(--highlight); cursor: pointer; }
+        .radio-section { margin-top: 12px; padding-top: 8px; }
+        .radio-section h2 { font-size: 0.95rem; margin-bottom: 8px; }
+        .radio-section input { background: var(--surface); border: 1px solid var(--accent); border-radius: 6px; padding: 8px; color: var(--text); width: 100%; margin-bottom: 6px; }
+        .radio-controls { display: flex; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
+        .radio-pagination { display: flex; justify-content: center; gap: 12px; margin: 10px 0 6px; }
+        .radio-pagination button { padding: 4px 16px; font-size: 0.7rem; }
+        .page-info { font-size: 0.65rem; color: var(--text2); text-align: center; margin-top: 4px; }
+        #radio-status { font-size: 0.7rem; color: var(--text2); text-align: center; margin-top: 6px; }
         .station-item, .favorite-item {
             display: flex;
             justify-content: space-between;
             align-items: center;
-            padding: 12px 14px;
+            padding: 8px 12px;
             background: var(--surface);
             margin: 4px 0;
             border-radius: 10px;
             cursor: pointer;
         }
-        .station-item:active, .favorite-item:active { background: var(--accent); }
-        .station-name, .favorite-name { flex: 1; font-size: 0.85rem; word-break: break-word; }
-        .station-country { font-size: 0.65rem; color: var(--text2); margin-top: 2px; }
-        .station-codec { font-size: 0.6rem; background: var(--accent); padding: 2px 6px; border-radius: 12px; }
-        .station-right { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; }
-        .delete-btn { background: none; color: var(--highlight); font-size: 1rem; padding: 4px 8px; }
-        .pagination { display: flex; justify-content: center; gap: 12px; margin: 12px 0 8px; }
-        .pagination button { padding: 6px 16px; font-size: 0.75rem; }
-        .page-info { font-size: 0.7rem; color: var(--text2); text-align: center; margin-top: 4px; }
-        .section-header { font-size: 0.75rem; color: var(--highlight); font-weight: bold; margin: 16px 0 8px; display: flex; justify-content: space-between; }
-        .stations-container { max-height: 320px; overflow-y: auto; border-radius: 8px; }
-        .empty-message { color: var(--text2); font-size: 0.75rem; text-align: center; padding: 20px; background: var(--surface); border-radius: 10px; }
-        .proxy-option { display: flex; align-items: center; gap: 8px; font-size: 0.7rem; margin-top: 8px; color: var(--text2); }
-        .proxy-option input { width: auto; margin: 0; }
+        .station-name { flex: 1; font-size: 0.8rem; word-break: break-word; }
+        .station-country { font-size: 0.6rem; color: var(--text2); margin-top: 2px; }
+        .station-actions { display: flex; gap: 6px; align-items: center; }
+        .fav-star { background: none; color: #ffc107; font-size: 1.1rem; padding: 4px; cursor: pointer; }
+        .delete-btn { background: none; color: var(--highlight); padding: 4px 8px; font-size: 0.8rem; cursor: pointer; }
+        .stations-container { max-height: 260px; overflow-y: auto; min-height: 200px; }
+        .empty-message { color: var(--text2); text-align: center; padding: 20px; }
+        #loading-overlay {
+            position: fixed; top:0; left:0; width:100%; height:100%;
+            background: rgba(0,0,0,0.9); backdrop-filter: blur(4px);
+            display: flex; flex-direction: column; justify-content: center; align-items: center;
+            z-index: 1000; visibility: hidden;
+        }
+        #loading-overlay.active { visibility: visible; }
+        .loader-text { color: var(--highlight); margin-bottom: 12px; }
+        .loader-bar { width: 200px; height: 3px; background: #333; border-radius: 3px; overflow: hidden; }
+        .loader-fill { width: 0%; height: 100%; background: var(--highlight); transition: width 0.1s; }
+        .spinner { display: inline-block; width: 14px; height: 14px; border: 2px solid #fff; border-top-color: transparent; border-radius: 50%; animation: spin 0.6s linear infinite; vertical-align: middle; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        .import-export { display: flex; gap: 8px; margin-top: 8px; }
+        .import-export button { flex: 1; font-size: 0.75rem; padding: 6px; }
+        .section-header { font-size: 0.75rem; color: var(--highlight); margin: 8px 0 4px; display: flex; justify-content: space-between; }
     </style>
 </head>
 <body>
-    <header><h1>🎧 Audio Player Pro</h1></header>
-    <div id="tabs">
-        <button class="tab active" data-tab="audio">🎵 Аудио</button>
-        <button class="tab" data-tab="radio">📻 Радио</button>
+<header><h1>🎧 Древо аудио + Радио</h1></header>
+
+<div id="tabs">
+    <button class="tab active" data-tab="audio">🎵 Аудио</button>
+    <button class="tab" data-tab="radio">📻 Радио</button>
+</div>
+
+<div id="tab-audio" class="tab-content active">
+    <div class="toolbar">
+        <div class="left-buttons">
+            <button id="btn-select-root">📁 Выбрать папку</button>
+            <button id="btn-up-folder" class="up-button">⬆ Вверх</button>
+        </div>
+        <div class="right-buttons">
+            <button id="btn-clear-all">🗑 Очистить</button>
+        </div>
+    </div>
+    <div id="folder-path-display" class="folder-info">📂 Не выбрано</div>
+
+    <div id="search-section">
+        <input type="text" id="tree-search" placeholder="🔍 Поиск по дереву">
+        <button id="search-clear">✖</button>
     </div>
 
-    <div id="tab-audio" class="tab-content active">
-        <div id="folder-section">
-            <button id="btn-select-folder">🎵 Выбрать треки</button>
-            <button id="btn-select-folder-all">📁 Выбрать папку (все файлы)</button>
-            <button id="btn-clear-playlist" style="background:#e94560;">🗑 Очистить список</button>
-            <input type="file" id="file-input" multiple accept="audio/*,.cue" style="display:none;">
-            <span id="folder-name">Не выбрано</span>
-        </div>
+    <div id="tree-container"></div>
 
-        <div id="playlist-search-section">
-            <input type="text" id="playlist-search" placeholder="🔍 Поиск по плейлисту">
-            <button id="playlist-search-clear">✖</button>
-        </div>
-
-        <ul id="playlist"></ul>
-        <div id="playlist-stats" style="font-size:0.65rem; color:var(--text2); text-align:center; margin-bottom:6px;"></div>
-
-        <div id="selection-tools" style="display: none; gap: 8px; margin-bottom: 8px;">
-            <button id="btn-move-up-group">▲▲ Вверх группой</button>
-            <button id="btn-move-down-group">▼▼ Вниз группой</button>
-            <button id="btn-clear-selection" style="background:#555;">✖ Снять выделение</button>
-        </div>
-
-        <div id="now-playing">
-            <div id="track-title">Нет трека</div>
-            <div id="track-time">0:00 / 0:00</div>
-        </div>
-        <div id="controls">
+    <div class="now-playing-card">
+        <div id="track-title">🎵 Нет трека</div>
+        <div id="track-time">0:00 / 0:00</div>
+        <input type="range" id="seek-bar" min="0" max="100" value="0" step="0.1">
+        <div class="controls">
             <button id="btn-prev">⏮ 10с</button>
             <button id="btn-play">▶️</button>
             <button id="btn-next">10с ⏭</button>
             <button id="btn-stop">⏹</button>
         </div>
-        <div id="chk-gapless-row"><input type="checkbox" id="chk-gapless" checked> 🪡 Gapless</div>
-        <input type="range" id="seek-bar" min="0" max="100" value="0" step="0.1">
+        <div class="gapless-row"><input type="checkbox" id="chk-gapless" checked> 🪡 Gapless (без паузы)</div>
     </div>
 
-    <div id="tab-radio" class="tab-content">
-        <div id="radio-section">
-            <h2 style="font-size:0.95rem;margin-bottom:8px;">📻 Интернет-радио</h2>
-            <div class="search-row">
-                <input type="text" id="online-search" placeholder="🔍 Поиск (например: pink floyd, rock, jazz)">
-                <button id="btn-online-search">🔍 Искать</button>
-            </div>
-            <div class="section-header"><span>📡 Результаты поиска</span><span id="results-count"></span></div>
-            <div id="search-results-container" class="stations-container"></div>
-            <div class="pagination" id="search-pagination">
-                <button id="btn-prev-page" disabled>◀ Пред.</button>
-                <button id="btn-next-page">След. ▶</button>
-            </div>
-            <div class="page-info" id="page-info"></div>
-            <div class="section-header"><span>⭐ Избранное</span><span id="fav-count"></span></div>
-            <div id="favorites-container" class="stations-container"></div>
-            <div class="pagination" id="favorites-pagination">
-                <button id="btn-fav-prev" disabled>◀ Пред.</button>
-                <button id="btn-fav-next">След. ▶</button>
-            </div>
-            <div class="page-info" id="fav-page-info"></div>
-            <div style="margin-top: 16px;">
-                <input type="text" id="station-url" placeholder="➕ Или введите URL потока...">
-                <input type="text" id="station-name" placeholder="Название станции" style="margin-top:4px;">
-            </div>
-            <div style="display:flex;gap:8px;margin-top:8px;">
-                <button id="btn-add-station">💾 В избранное</button>
-                <button id="btn-export">📤 Экспорт</button>
-                <button id="btn-import">📥 Импорт</button>
-            </div>
-            <div class="radio-controls">
-                <button id="btn-radio-play">▶️ Играть</button>
-                <button id="btn-radio-stop">⏹ Стоп</button>
-            </div>
-            <div id="radio-status">⚡ Введите запрос и нажмите "Искать"</div>
-        </div>
-    </div>
-
-    <div id="effects-panel">
+    <div class="effects-panel">
         <h2>🎛 Эффекты</h2>
         <label>Реверберация <span id="val-reverb">0</span>%</label>
         <input type="range" id="reverb" min="0" max="100" value="0">
@@ -250,1355 +233,878 @@
         <div id="space-presets"><div class="preset-btns"></div><div class="preset-tip" id="space-tip"></div></div>
         <div id="eq-presets"><div class="preset-btns"></div><div class="preset-tip" id="eq-tip"></div></div>
         <div id="eq-section"><div id="eq-bands"></div></div>
-        <details><summary>💡 Шпаргалка</summary><div><b>Ревер</b> — эхо<br><b>Дилей</b> — повтор<br><b>Стереобаза</b> — ширина</div></details>
+        <details><summary>💡 Шпаргалка</summary><div><b>Реверб</b> — эхо<br><b>Дилей</b> — повтор<br><b>Стереобаза</b> — ширина звука</div></details>
     </div>
+</div>
 
-    <div id="loading-overlay">
-        <div class="loader-text">⏳ Загрузка...</div>
-        <div class="loader-bar"><div class="loader-fill" id="loader-fill"></div></div>
-        <div class="loader-detail" id="loader-detail"></div>
+<div id="tab-radio" class="tab-content">
+    <div class="radio-section">
+        <h2>📻 Интернет-радио</h2>
+        <div style="display: flex; gap: 8px;">
+            <input type="text" id="online-search" placeholder="🔍 Поиск станций (рок, джаз, ...)" style="flex:1;">
+            <button id="btn-online-search">🔍 Искать</button>
+        </div>
+
+        <div class="section-header"><span>📡 Результаты поиска</span><span id="results-count"></span></div>
+        <div id="search-results-container" class="stations-container"></div>
+        <div class="radio-pagination">
+            <button id="btn-search-prev" disabled>◀ Пред.</button>
+            <button id="btn-search-next">След. ▶</button>
+        </div>
+        <div class="page-info" id="search-page-info"></div>
+
+        <div class="section-header"><span>⭐ Избранное</span><span id="fav-count"></span></div>
+        <div id="favorites-container" class="stations-container"></div>
+        <div class="radio-pagination">
+            <button id="btn-fav-prev" disabled>◀ Пред.</button>
+            <button id="btn-fav-next">След. ▶</button>
+        </div>
+        <div class="page-info" id="fav-page-info"></div>
+
+        <input type="text" id="station-url" placeholder="➕ Или введите URL потока...">
+        <input type="text" id="station-name" placeholder="Название станции">
+
+        <div class="import-export">
+            <button id="btn-export">📤 Экспорт</button>
+            <button id="btn-import">📥 Импорт</button>
+        </div>
+
+        <div class="radio-controls">
+            <button id="btn-add-station">💾 В избранное</button>
+            <button id="btn-radio-play">▶️ Играть</button>
+            <button id="btn-radio-stop">⏹ Стоп</button>
+        </div>
+        <div id="radio-status">⚡ Введите запрос и нажмите "Искать"</div>
     </div>
+</div>
 
-    <script>
-        const isMobile = /Android|iPhone|iPad|iPod|webOS/i.test(navigator.userAgent);
+<div id="loading-overlay">
+    <div class="loader-text">⏳ Загрузка...</div>
+    <div class="loader-bar"><div class="loader-fill" id="loader-fill"></div></div>
+    <div class="loader-detail" id="loader-detail"></div>
+</div>
 
-        // DOM элементы
-        const btnSelect = document.getElementById('btn-select-folder');
-        const fileInput = document.getElementById('file-input');
-        const folderNameEl = document.getElementById('folder-name');
-        const playlistEl = document.getElementById('playlist');
-        const playlistStats = document.getElementById('playlist-stats');
-        const trackTitle = document.getElementById('track-title');
-        const trackTime = document.getElementById('track-time');
-        const btnPlay = document.getElementById('btn-play');
-        const btnStop = document.getElementById('btn-stop');
-        const btnPrev = document.getElementById('btn-prev');
-        const btnNext = document.getElementById('btn-next');
-        const seekBar = document.getElementById('seek-bar');
-        const reverbSlider = document.getElementById('reverb');
-        const delaySlider = document.getElementById('delay');
-        const stereoSlider = document.getElementById('stereo');
-        const valReverb = document.getElementById('val-reverb');
-        const valDelay = document.getElementById('val-delay');
-        const valStereo = document.getElementById('val-stereo');
-        const eqBandsDiv = document.getElementById('eq-bands');
-        const chkGapless = document.getElementById('chk-gapless');
-        const playlistSearch = document.getElementById('playlist-search');
-        const playlistSearchClear = document.getElementById('playlist-search-clear');
-        const loadingOverlay = document.getElementById('loading-overlay');
-        const loaderFill = document.getElementById('loader-fill');
-        const loaderDetail = document.getElementById('loader-detail');
-        const btnClearPlaylist = document.getElementById('btn-clear-playlist');
-        const btnSelectFolderAll = document.getElementById('btn-select-folder-all');
-        const chkCorsProxy = document.getElementById('chk-cors-proxy');
-        const selectionTools = document.getElementById('selection-tools');
-        const btnMoveUpGroup = document.getElementById('btn-move-up-group');
-        const btnMoveDownGroup = document.getElementById('btn-move-down-group');
-        const btnClearSelection = document.getElementById('btn-clear-selection');
+<script>
+    // ==================== ГЛОБАЛЬНЫЕ ПЕРЕМЕННЫЕ ====================
+    let audioContext = null;
+    let currentBuffer = null;
+    let currentSource = null;
+    let isPlaying = false;
+    let pausedAt = 0;
+    let startTime = 0;
+    let animationId = null;
+    let currentIndex = -1;
+    let isSeeking = false;
+    let seekTimeout = null;
+    let gaplessEnabled = true;
+    let nextBuffer = null;
+    let isLoading = false;
+    let nextTrackTimer = null;
+    let isEndedProcessing = false;
 
-        let audioContext = null;
-        let fullPlaylist = [];
-        let playlist = [];
-        let currentIndex = -1;
-        let currentSource = null;
-        let currentBuffer = null;
-        let nextBuffer = null;
-        let startTime = 0;
-        let pausedAt = 0;
-        let isPlaying = false;
-        let animationId = null;
-        let seekDragging = false;
-        let isSeeking = false;
-        let seekTimeout = null;
-        let isLoadingTrack = false;
-        let currentSearchQuery = '';
-        let isDecodingInProgress = false;
-        let eqFilters = [];
-        let stereoWidener = null;
-        let delayNode = null;
-        let delayFeedbackNode = null;
-        let delayWetGain = null;
-        let convolver = null;
-        let reverbWetGain = null;
-        let dryGain = null;
-        let masterGain = null;
-        let graphInput = null;
-        let graphBuilt = false;
-        let radioAudio = null;
-        let radioSource = null;
-        let radioReconnectAttempts = 0;
-        let radioReconnectTimer = null;
-        let selectedIndices = new Set();
-        let selectionMode = false;
+    // Данные
+    let flatPlaylist = [];
+    let currentFolderHandle = null;
+    let folderStack = [];
+    let searchQuery = '';
 
+    // Сохранённое состояние
+    let savedFolderName = null;
+    let savedCurrentIndex = -1;
+    let savedOpenFolders = new Set();
 
-        const EQ_FREQS = [31, 62, 125, 250, 500, 1000, 2000, 4000, 8000, 16000];
-        const bufferCache = new Map();
-        const MAX_CACHE = 50;
+    // Эффекты
+    let masterGain = null, dryGain = null, reverbWet = null, delayWet = null, stereoGain = null, convolver = null, delayNode = null, delayFeedback = null;
+    let eqFilters = [];
+    const EQ_FREQS = [31, 62, 125, 250, 500, 1000, 2000, 4000, 8000, 16000];
+    let graphInput = null;
+    let graphBuilt = false;
 
-        // ========== ИСПРАВЛЕННЫЙ CUE ПАРСЕР ==========
-        function parseCueAdvanced(cueText) {
-            if (cueText.charCodeAt(0) === 0xFEFF) cueText = cueText.slice(1);
+    // Радио
+    let radioAudio = null;
+    let radioSource = null;
+    let favoriteStations = [];
+    let searchResults = [];
+    let searchCurrentPage = 0;
+    let favCurrentPage = 0;
+    const SEARCH_PAGE_SIZE = 15;
+    const FAV_PAGE_SIZE = 15;
 
-            const tracks = [];
-            const lines = cueText.split(/\r?\n/);
-            let currentFile = null;
-            let currentTrack = null;
+    // DOM
+    const treeContainer = document.getElementById('tree-container');
+    const folderPathDisplay = document.getElementById('folder-path-display');
+    const btnSelectRoot = document.getElementById('btn-select-root');
+    const btnUpFolder = document.getElementById('btn-up-folder');
+    const btnClearAll = document.getElementById('btn-clear-all');
+    const btnPlay = document.getElementById('btn-play');
+    const btnStop = document.getElementById('btn-stop');
+    const btnPrev = document.getElementById('btn-prev');
+    const btnNext = document.getElementById('btn-next');
+    const seekBar = document.getElementById('seek-bar');
+    const trackTitleEl = document.getElementById('track-title');
+    const trackTimeEl = document.getElementById('track-time');
+    const chkGapless = document.getElementById('chk-gapless');
+    const treeSearch = document.getElementById('tree-search');
+    const searchClear = document.getElementById('search-clear');
+    const reverbSlider = document.getElementById('reverb');
+    const delaySlider = document.getElementById('delay');
+    const stereoSlider = document.getElementById('stereo');
+    const valReverb = document.getElementById('val-reverb');
+    const valDelay = document.getElementById('val-delay');
+    const valStereo = document.getElementById('val-stereo');
+    const eqBandsDiv = document.getElementById('eq-bands');
+    const loadingOverlay = document.getElementById('loading-overlay');
+    const loaderFill = document.getElementById('loader-fill');
+    const loaderDetail = document.getElementById('loader-detail');
+    const spaceTip = document.getElementById('space-tip');
+    const eqTip = document.getElementById('eq-tip');
 
-            const timeToSeconds = (str) => {
-                if (!str) return null;
-                const parts = str.trim().split(':');
-                if (parts.length === 2) {
-                    return parseInt(parts[0]) * 60 + parseFloat(parts[1]);
-                } else if (parts.length === 3) {
-                    return parseInt(parts[0]) * 60 + parseInt(parts[1]) + parseInt(parts[2]) / 75;
-                }
-                return null;
-            };
+    // ==================== ВСПОМОГАТЕЛЬНЫЕ ====================
+    function showLoader(text, detail) { loadingOverlay.classList.add('active'); if(text) document.querySelector('.loader-text').innerHTML = text; if(detail) loaderDetail.textContent = detail; loaderFill.style.width = '0%'; }
+    function hideLoader() { loadingOverlay.classList.remove('active'); }
+    function escapeHtml(str) { return str.replace(/[&<>]/g, m => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;' }[m])); }
+    function formatTime(sec) { if(isNaN(sec)) sec=0; let m = Math.floor(sec/60), s = Math.floor(sec%60); return `${m}:${s.toString().padStart(2,'0')}`; }
 
-            const cleanQuoted = (str) => {
-                return str.replace(/^["']|["']$/g, '').trim();
-            };
-
-            for (let i = 0; i < lines.length; i++) {
-                const line = lines[i];
-                const trimmed = line.trim();
-                if (!trimmed) continue;
-                const upper = trimmed.toUpperCase();
-
-                if (upper.startsWith('REM')) continue;
-
-                if (upper.startsWith('FILE ')) {
-                    const match = trimmed.match(/^FILE\s+(.+?)\s+(WAVE|MP3|AIFF|BINARY|MOTOROLA|CDDA|FLAC|MPA|OGG)/i);
-                    if (match) {
-                        currentFile = cleanQuoted(match[1]);
-                    }
-                }
-                else if (upper.startsWith('TRACK ')) {
-                    if (currentTrack && currentTrack.index01 !== null && currentFile) {
-                        tracks.push({ ...currentTrack, file: currentFile });
-                    }
-                    const match = trimmed.match(/^TRACK\s+(\d+)\s*(AUDIO)?/i);
-                    if (match) {
-                        currentTrack = {
-                            number: parseInt(match[1]),
-                            title: `Track ${match[1]}`,
-                            performer: '',
-                            index01: null,
-                            index00: null
-                        };
-                    }
-                }
-                else if (currentTrack) {
-                    const upperLine = trimmed.toUpperCase();
-                    if (upperLine.startsWith('TITLE ')) {
-                        const m = trimmed.match(/^TITLE\s+(.+)$/i);
-                        if (m) {
-                            currentTrack.title = cleanQuoted(m[1]);
-                        }
-                    }
-                    else if (upperLine.startsWith('PERFORMER ')) {
-                        const m = trimmed.match(/^PERFORMER\s+(.+)$/i);
-                        if (m) {
-                            currentTrack.performer = cleanQuoted(m[1]);
-                        }
-                    }
-                    else if (upperLine.startsWith('INDEX 00 ')) {
-                        const m = trimmed.match(/^INDEX 00\s+(.+)$/i);
-                        if (m) currentTrack.index00 = timeToSeconds(m[1]);
-                    }
-                    else if (upperLine.startsWith('INDEX 01 ')) {
-                        const m = trimmed.match(/^INDEX 01\s+(.+)$/i);
-                        if (m) {
-                            currentTrack.index01 = timeToSeconds(m[1]);
-                        }
-                    }
-                }
-            }
-
-            if (currentTrack && currentTrack.index01 !== null && currentFile) {
-                tracks.push({ ...currentTrack, file: currentFile });
-            }
-
-            return tracks;
-        }
-
-        function savePlaylistToStorage() {
-            if (!fullPlaylist.length) return;
-            try {
-                const serialized = fullPlaylist.map(item => ({
-                    name: item.name,
-                    fileName: item.file.name,
-                    fileSize: item.file.size,
-                    fileType: item.file.type,
-                    isCue: item.isCue || false,
-                    cueStart: item.cueStart || null,
-                    cueEnd: item.cueEnd || null
-                }));
-                localStorage.setItem('saved-playlist', JSON.stringify(serialized));
-                localStorage.setItem('playlist-timestamp', Date.now());
-            } catch(e) { console.warn(e); }
-        }
-
-        function showLoader(text, detail) {
-            loadingOverlay.classList.add('active');
-            if (text) document.querySelector('.loader-text').innerHTML = text;
-            if (detail) loaderDetail.textContent = detail;
-            loaderFill.style.width = '0%';
-        }
-        function updateLoaderProgress(percent, detail) {
-            loaderFill.style.width = Math.min(100, percent) + '%';
-            if (detail) loaderDetail.textContent = detail;
-        }
-        function hideLoader() { loadingOverlay.classList.remove('active'); }
-
-        function buildAudioGraph() {
-            if (graphBuilt) return graphInput;
-            const ctx = audioContext;
-            graphInput = ctx.createGain();
-            dryGain = ctx.createGain();
-            stereoWidener = ctx.createGain();
-            delayNode = ctx.createDelay(2.0);
-            delayNode.delayTime.value = 0.3;
-            delayFeedbackNode = ctx.createGain();
-            delayFeedbackNode.gain.value = 0.3;
-            delayWetGain = ctx.createGain();
-            delayNode.connect(delayFeedbackNode);
-            delayFeedbackNode.connect(delayNode);
-            convolver = ctx.createConvolver();
-            convolver.buffer = createReverbImpulse(ctx, isMobile ? 0.8 : 1.5);
-            reverbWetGain = ctx.createGain();
-            eqFilters = EQ_FREQS.map(f => {
-                const fn = ctx.createBiquadFilter();
-                fn.type = 'peaking';
-                fn.frequency.value = f;
-                fn.Q.value = 1;
-                fn.gain.value = 0;
-                return fn;
-            });
-            for (let i = 0; i < eqFilters.length - 1; i++) eqFilters[i].connect(eqFilters[i + 1]);
-            masterGain = ctx.createGain();
-            masterGain.gain.value = 0.8;
-            masterGain.connect(ctx.destination);
-            graphInput.connect(eqFilters[0]);
-            const eqEnd = eqFilters[eqFilters.length - 1];
-            eqEnd.connect(dryGain);
-            dryGain.connect(masterGain);
-            eqEnd.connect(stereoWidener);
-            stereoWidener.connect(masterGain);
-            eqEnd.connect(delayNode);
-            delayNode.connect(delayWetGain);
-            delayWetGain.connect(masterGain);
-            eqEnd.connect(convolver);
-            convolver.connect(reverbWetGain);
-            reverbWetGain.connect(masterGain);
-            graphBuilt = true;
-            applySavedSettings();
-            return graphInput;
-        }
-
-        function createReverbImpulse(ctx, duration) {
-            const sr = ctx.sampleRate;
-            const len = Math.floor(sr * duration);
-            const buf = ctx.createBuffer(2, len, sr);
-            for (let ch = 0; ch < 2; ch++) {
-                const d = buf.getChannelData(ch);
-                for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, 1.5);
-            }
+    // ==================== АУДИО ДВИЖОК ====================
+    function buildAudioGraph() {
+        if(graphBuilt) return graphInput;
+        const ctx = audioContext;
+        graphInput = ctx.createGain();
+        dryGain = ctx.createGain();
+        stereoGain = ctx.createGain();
+        delayNode = ctx.createDelay(2.0);
+        delayNode.delayTime.value = 0.3;
+        delayFeedback = ctx.createGain();
+        delayFeedback.gain.value = 0.3;
+        delayWet = ctx.createGain();
+        delayNode.connect(delayFeedback);
+        delayFeedback.connect(delayNode);
+        convolver = ctx.createConvolver();
+        const impulse = (duration=1.5) => {
+            const len = ctx.sampleRate * duration;
+            const buf = ctx.createBuffer(2, len, ctx.sampleRate);
+            for(let ch=0;ch<2;ch++) { let data = buf.getChannelData(ch); for(let i=0;i<len;i++) data[i] = (Math.random()*2-1) * Math.pow(1-i/len,1.5); }
             return buf;
-        }
+        };
+        convolver.buffer = impulse(1.5);
+        reverbWet = ctx.createGain();
+        eqFilters = EQ_FREQS.map(f=>{ let f1 = ctx.createBiquadFilter(); f1.type='peaking'; f1.frequency.value=f; f1.Q.value=1; f1.gain.value=0; return f1; });
+        for(let i=0;i<eqFilters.length-1;i++) eqFilters[i].connect(eqFilters[i+1]);
+        masterGain = ctx.createGain();
+        masterGain.gain.value = 0.8;
+        masterGain.connect(ctx.destination);
+        graphInput.connect(eqFilters[0]);
+        eqFilters[eqFilters.length-1].connect(dryGain);
+        dryGain.connect(masterGain);
+        eqFilters[eqFilters.length-1].connect(stereoGain);
+        stereoGain.connect(masterGain);
+        eqFilters[eqFilters.length-1].connect(delayNode);
+        delayNode.connect(delayWet);
+        delayWet.connect(masterGain);
+        eqFilters[eqFilters.length-1].connect(convolver);
+        convolver.connect(reverbWet);
+        reverbWet.connect(masterGain);
+        graphBuilt = true;
+        applyEffects();
+        return graphInput;
+    }
 
-        function initAudio() {
-            if (!audioContext) {
-                audioContext = new (window.AudioContext || window.webkitAudioContext)({ latencyHint: isMobile ? 'playback' : 'interactive' });
-                buildAudioGraph();
+    function initAudio() { if(!audioContext) { audioContext = new (window.AudioContext || window.webkitAudioContext)({latencyHint:'interactive'}); buildAudioGraph(); } if(audioContext.state === 'suspended') audioContext.resume(); return audioContext; }
+
+    function applyEffects() {
+        if(!graphBuilt) return;
+        reverbWet.gain.value = parseFloat(reverbSlider.value)/100;
+        delayWet.gain.value = parseFloat(delaySlider.value)/100;
+        stereoGain.gain.value = parseFloat(stereoSlider.value)/100;
+        const sliders = eqBandsDiv.querySelectorAll('input');
+        sliders.forEach((s,i)=>{ if(eqFilters[i]) eqFilters[i].gain.value = parseFloat(s.value); });
+        saveSettings();
+    }
+
+    function saveSettings() {
+        const eqVals = Array.from(eqBandsDiv.querySelectorAll('input')).map(s=>parseFloat(s.value));
+        localStorage.setItem('player_settings', JSON.stringify({ reverb:reverbSlider.value, delay:delaySlider.value, stereo:stereoSlider.value, eq:eqVals, gapless:chkGapless.checked }));
+    }
+    function loadSettings() {
+        const raw = localStorage.getItem('player_settings');
+        if(raw) try {
+            const s = JSON.parse(raw);
+            if(s.reverb) { reverbSlider.value = s.reverb; valReverb.textContent = s.reverb; }
+            if(s.delay) { delaySlider.value = s.delay; valDelay.textContent = s.delay; }
+            if(s.stereo) { stereoSlider.value = s.stereo; valStereo.textContent = s.stereo; }
+            if(s.eq) { const sl = eqBandsDiv.querySelectorAll('input'); s.eq.forEach((v,i)=>{ if(sl[i]) sl[i].value = v; }); }
+            if(s.gapless !== undefined) chkGapless.checked = s.gapless;
+            gaplessEnabled = chkGapless.checked;
+            applyEffects();
+        } catch(e) {}
+    }
+
+    async function decodeAudioFile(file) { const ctx = initAudio(); const ab = await file.arrayBuffer(); return await ctx.decodeAudioData(ab); }
+
+    function updateTimeDisplay() {
+        if(currentBuffer) {
+            let cur;
+            if (isPlaying && currentSource && audioContext) {
+                cur = Math.min(currentBuffer.duration, Math.max(0, audioContext.currentTime - startTime));
+            } else {
+                cur = pausedAt;
             }
-            if (audioContext.state === 'suspended') audioContext.resume();
-            return audioContext;
-        }
+            trackTimeEl.textContent = `${formatTime(cur)} / ${formatTime(currentBuffer.duration)}`;
+            seekBar.value = (cur/currentBuffer.duration)*100;
+        } else trackTimeEl.textContent = '0:00 / 0:00';
+    }
 
-        function stopRadio() {
-            if (radioReconnectTimer) clearTimeout(radioReconnectTimer);
-            radioReconnectAttempts = 0;
-            if (radioAudio) { try { radioAudio.pause(); radioAudio.src = ''; } catch(e) {} radioAudio = null; }
-            if (radioSource) { try { radioSource.disconnect(); } catch(e) {} radioSource = null; }
-            const rs = document.getElementById('radio-status');
-            if (rs) { rs.textContent = '⏹ Остановлено'; rs.style.color = '#aaa'; }
-        }
+    function startTimeLoop() { if(animationId) cancelAnimationFrame(animationId); function loop() { if(!isSeeking) updateTimeDisplay(); animationId = requestAnimationFrame(loop); } loop(); }
 
-        async function playRadioStream(url, name) {
-            if (!url) return;
-
-            // Автоматически используем CORS-прокси для проблемных станций
-            let finalUrl = url;
-            // Простой детект: если URL не безопасный или может быть CORS
-            if (!url.startsWith('https://')) {
-                finalUrl = `https://cors-anywhere.herokuapp.com/${url}`;
-            }
-
-            stopRadio();
-            const rs = document.getElementById('radio-status');
-            rs.innerHTML = '🔄 Подключение... <span class="spinner"></span>';
-            rs.style.color = '#ffa500';
-
-            const tryConnect = async (attempt = 0) => {
-                try {
-                    const audio = new Audio();
-                    audio.crossOrigin = 'anonymous';
-
-                    // Устанавливаем тип чтобы избежать ошибок формата
-                    audio.preload = 'metadata';
-
-                    const connectPromise = new Promise((resolve, reject) => {
-                        let resolved = false;
-
-                        audio.oncanplay = () => {
-                            if (!resolved) {
-                                resolved = true;
-                                resolve(true);
-                            }
-                        };
-
-                        audio.onerror = (e) => {
-                            if (!resolved) {
-                                resolved = true;
-                                const errorCode = audio.error?.code;
-                                let errorMsg = 'Ошибка потока';
-                                if (errorCode === 3) errorMsg = 'Ошибка декодирования (неподдерживаемый формат)';
-                                if (errorCode === 4) errorMsg = 'Медиа не найдено';
-                                reject(new Error(errorMsg));
-                            }
-                        };
-
-                        setTimeout(() => {
-                            if (!resolved) {
-                                resolved = true;
-                                reject(new Error('Таймаут подключения 15с'));
-                            }
-                        }, 15000);
-                    });
-
-                    audio.src = finalUrl;
-                    await connectPromise;
-
-                    const ctx = initAudio();
-                    if (ctx.state === 'suspended') await ctx.resume();
-                    applySavedSettings();
-
-                    if (radioSource) try { radioSource.disconnect(); } catch(e) {}
-                    radioSource = ctx.createMediaElementSource(audio);
-                    radioSource.connect(graphInput || buildAudioGraph());
-                    radioAudio = audio;
-
-                    audio.onended = () => {
-                        if (radioReconnectAttempts < 3 && radioAudio) {
-                            radioReconnectAttempts++;
-                            radioReconnectTimer = setTimeout(() => {
-                                playRadioStream(url, name);
-                            }, 3000);
-                        }
-                    };
-
-                    audio.onerror = () => {
-                        if (radioReconnectAttempts < 3 && radioAudio) {
-                            radioReconnectAttempts++;
-                            radioReconnectTimer = setTimeout(() => {
-                                playRadioStream(url, name);
-                            }, 3000);
-                        }
-                    };
-
-                    await audio.play();
-                    radioReconnectAttempts = 0;
-                    rs.innerHTML = `🎵 ${name || 'Радио'} (${finalUrl.includes('cors-anywhere') ? 'через прокси' : 'прямо'})`;
-                    rs.style.color = '#4caf50';
-
-                    // Подсвечиваем выбранную станцию
-                    highlightSelectedStation(url, name);
-
-                } catch (err) {
-                    let msg = err.message;
-                    if (msg.includes('Failed to fetch') || msg.includes('NetworkError')) {
-                        msg = 'Не удалось подключиться. Станция может быть недоступна.';
-                    }
-                    rs.innerHTML = `❌ ${msg}`;
-                    rs.style.color = '#e94560';
-                    if (attempt < 2) {
-                        setTimeout(() => tryConnect(attempt + 1), 2000);
-                    } else {
-                        stopRadio();
-                    }
-                }
-            };
-
-            tryConnect();
-        }
-
-        // Функция подсветки выбранной станции
-        function highlightSelectedStation(url, name) {
-            // Убираем подсветку со всех
-            document.querySelectorAll('.station-item, .favorite-item').forEach(el => {
-                el.style.background = '';
-            });
-            // Ищем и подсвечиваем нужную
-            document.querySelectorAll('.station-item, .favorite-item').forEach(el => {
-                const stationName = el.querySelector('.station-name')?.innerText || '';
-                if (stationName === name || (el.querySelector('.favorite-name')?.innerText.includes(name))) {
-                    el.style.background = 'var(--highlight)';
-                    el.style.opacity = '0.8';
-                }
-            });
-        }
-
-        function saveSettings() {
-            const sl = eqBandsDiv.querySelectorAll('input[type="range"]');
-            localStorage.setItem('player-settings', JSON.stringify({
-                reverb: reverbSlider.value, delay: delaySlider.value, stereo: stereoSlider.value,
-                eq: Array.from(sl).map(s => parseFloat(s.value)), gapless: chkGapless.checked
-            }));
-        }
-
-        function loadSettings() {
-            const raw = localStorage.getItem('player-settings');
-            if (!raw) return;
-            try {
-                const s = JSON.parse(raw);
-                if (s.reverb !== undefined) { reverbSlider.value = s.reverb; valReverb.textContent = s.reverb; }
-                if (s.delay !== undefined) { delaySlider.value = s.delay; valDelay.textContent = s.delay; }
-                if (s.stereo !== undefined) { stereoSlider.value = s.stereo; valStereo.textContent = s.stereo; }
-                if (s.eq) { const sl = eqBandsDiv.querySelectorAll('input[type="range"]'); s.eq.forEach((v, i) => { if (sl[i]) sl[i].value = v; }); }
-                if (s.gapless !== undefined) chkGapless.checked = s.gapless;
-            } catch(e) {}
-        }
-
-        function applySavedSettings() {
-            if (!graphBuilt) return;
-            if (reverbWetGain) reverbWetGain.gain.value = parseFloat(reverbSlider.value) / 100;
-            if (delayWetGain) delayWetGain.gain.value = parseFloat(delaySlider.value) / 100;
-            if (stereoWidener) stereoWidener.gain.value = parseFloat(stereoSlider.value) / 100;
-            const sl = eqBandsDiv.querySelectorAll('input[type="range"]');
-            sl.forEach((s, i) => { if (eqFilters[i]) eqFilters[i].gain.value = parseFloat(s.value); });
-        }
-
-        async function loadFile(index) {
-            if (isLoadingTrack) {
-                await new Promise(r => { let check = setInterval(() => { if (!isLoadingTrack) { clearInterval(check); r(); } }, 50); });
-            }
-            const item = playlist[index];
-            const cacheKey = item.isCue ? `${item.file.name}_${item.cueStart}_${item.cueEnd}` : item.file.name;
-            if (bufferCache.has(cacheKey)) return bufferCache.get(cacheKey);
-            isLoadingTrack = true;
-            try {
-                const ab = await item.file.arrayBuffer();
-                const ctx = initAudio();
-                const fullBuffer = await ctx.decodeAudioData(ab);
-                let resultBuffer = fullBuffer;
-                if (item.isCue && item.cueStart !== null) {
-                    const startSample = Math.floor(item.cueStart * fullBuffer.sampleRate);
-                    const endSample = item.cueEnd ? Math.floor(item.cueEnd * fullBuffer.sampleRate) : fullBuffer.length;
-                    const frameCount = Math.min(endSample - startSample, fullBuffer.length - startSample);
-                    if (frameCount > 0) {
-                        const slicedBuffer = audioContext.createBuffer(fullBuffer.numberOfChannels, frameCount, fullBuffer.sampleRate);
-                        for (let ch = 0; ch < fullBuffer.numberOfChannels; ch++) {
-                            slicedBuffer.getChannelData(ch).set(fullBuffer.getChannelData(ch).subarray(startSample, startSample + frameCount));
-                        }
-                        resultBuffer = slicedBuffer;
-                    }
-                }
-                if (bufferCache.size > MAX_CACHE) bufferCache.delete(bufferCache.keys().next().value);
-                bufferCache.set(cacheKey, resultBuffer);
-                return resultBuffer;
-            } finally { isLoadingTrack = false; }
-        }
-
-        function killAllSources() {
-            if (currentSource) {
-                try { currentSource.stop(); } catch(e) {}
-                try { currentSource.disconnect(); } catch(e) {}
-                currentSource = null;
-            }
-            if (animationId) cancelAnimationFrame(animationId);
-        }
-
-        function startSource(offset) {
-            if (isSeeking || !currentBuffer) return;
-
-            // Убиваем старый источник если есть
-            if (currentSource) {
-                try {
-                    currentSource.stop();
-                    currentSource.disconnect();
-                } catch(e) {}
-                currentSource = null;
-            }
-
-            const ctx = initAudio();
-            let startOffset = Math.min(Math.max(0, offset), currentBuffer.duration - 0.1);
-            currentSource = ctx.createBufferSource();
-            currentSource.buffer = currentBuffer;
-            currentSource.connect(graphInput);
-
-            currentSource.onended = () => {
-                if (chkGapless.checked && nextBuffer && !isSeeking) {
-                    currentBuffer = nextBuffer;
-                    currentIndex++;
-                    nextBuffer = null;
-                    trackTitle.textContent = playlist[currentIndex]?.name || '';
-                    renderPlaylist();
-                    startSource(0);
-                    preloadNext();
-                } else {
-                    isPlaying = false;
-                    btnPlay.textContent = '▶️';
-                    pausedAt = 0;
-                    seekBar.value = 0;
-                    currentSource = null;
-                    updateTimeDisplay();
-                }
-            };
-
-            currentSource.start(0, startOffset);
-            startTime = ctx.currentTime - startOffset;
-            pausedAt = startOffset;
-            isPlaying = true;
-            btnPlay.textContent = '⏸️';
-            startTimeUpdate();
-        }
-        async function preloadNext() {
-            const nextIdx = currentIndex + 1;
-            if (nextIdx >= playlist.length) { nextBuffer = null; return; }
-            try { nextBuffer = await loadFile(nextIdx); } catch(e) { nextBuffer = null; }
-        }
-
-        function getCurrentTime() {
-            if (!currentBuffer || !audioContext) return pausedAt;
-            if (!isPlaying || !currentSource) return pausedAt;
+    // Получить текущую позицию воспроизведения
+    function getCurrentPosition() {
+        if (!currentBuffer) return 0;
+        if (isPlaying && currentSource && audioContext) {
             return Math.min(currentBuffer.duration, Math.max(0, audioContext.currentTime - startTime));
         }
+        return pausedAt;
+    }
 
-        function actionPlay() {
-            console.log('actionPlay, isPlaying =', isPlaying);
-            if (!currentBuffer) return;
-            stopRadio();
-            if (isPlaying) {
-                pausedAt = getCurrentTime();
-                if (currentSource) {
-                    try { currentSource.stop(); } catch(e) {}
-                    try { currentSource.disconnect(); } catch(e) {}
-                    currentSource = null;
-                }
-                isPlaying = false;
-                btnPlay.textContent = '▶️';
-                if (animationId) cancelAnimationFrame(animationId);
-                updateTimeDisplay();
-            } else {
-                startSource(pausedAt);
-            }
+    function playNextTrack() {
+        if(nextTrackTimer) clearTimeout(nextTrackTimer);
+        if(currentIndex + 1 < flatPlaylist.length) {
+            console.log('Переход на следующий трек:', currentIndex + 1);
+            loadTrackByIndex(currentIndex + 1, true);
+        } else {
+            console.log('Это последний трек в плейлисте');
+            actionStop();
         }
+    }
 
-        function actionStop() {
-            console.log('actionStop');
-            // Жёсткая остановка
-            if (currentSource) {
-                try { currentSource.stop(); } catch(e) {}
-                try { currentSource.disconnect(); } catch(e) {}
+    async function loadTrackByIndex(index, autoPlay = true) {
+        if(index<0 || index>=flatPlaylist.length || isLoading) {
+            console.log('Не удалось загрузить трек:', index);
+            return false;
+        }
+        isLoading = true;
+        try {
+            if(currentSource) {
+                try{ currentSource.stop(); currentSource.disconnect(); }catch(e){}
                 currentSource = null;
             }
-            if (animationId) cancelAnimationFrame(animationId);
             isPlaying = false;
             btnPlay.textContent = '▶️';
-            pausedAt = 0;
-            seekBar.value = 0;
-            if (currentBuffer) updateTimeDisplay();
-        }
 
-        function actionRewind() {
-            if (!currentBuffer) return;
-            const wasPlaying = isPlaying;
-            const t = Math.max(0, getCurrentTime() - 10);
-            killAllSources();
-            isPlaying = false;
-            pausedAt = t;
-            seekBar.value = (t / currentBuffer.duration) * 100;
-            updateTimeDisplay();
-            if (wasPlaying) startSource(t);
-        }
+            const item = flatPlaylist[index];
+            if(!item || !item.file) return false;
 
-        function actionForward() {
-            if (!currentBuffer) return;
-            const wasPlaying = isPlaying;
-            const t = Math.min(currentBuffer.duration, getCurrentTime() + 10);
-            killAllSources();
-            isPlaying = false;
-            pausedAt = t;
-            seekBar.value = (t / currentBuffer.duration) * 100;
-            updateTimeDisplay();
-            if (wasPlaying) startSource(t);
-        }
-           async function actionSelectTrack(index, skipAutoPlay = false) {
-            if (index < 0 || index >= playlist.length || isLoadingTrack) return;
-
-            // Останавливаем радио
-            stopRadio();
-
-            // ===== ЖЁСТКАЯ ОСТАНОВКА ВСЕХ ИСТОЧНИКОВ =====
-            if (currentSource) {
-                try {
-                    currentSource.stop();
-                    currentSource.disconnect();
-                } catch(e) {}
-                currentSource = null;
-            }
-
-            // Отключаем все узлы от destination (запасной вариант)
-            if (audioContext && audioContext.destination) {
-                try {
-                    // Создаём временный узел-заглушку
-                    const dummyGain = audioContext.createGain();
-                    dummyGain.gain.value = 0;
-                    dummyGain.connect(audioContext.destination);
-                    // Убираем его через секунду
-                    setTimeout(() => {
-                        try { dummyGain.disconnect(); } catch(e) {}
-                    }, 100);
-                } catch(e) {}
-            }
-
-            // Сбрасываем анимацию
-            if (animationId) {
-                cancelAnimationFrame(animationId);
-                animationId = null;
-            }
-
-            // Сбрасываем состояние
-            isPlaying = false;
-            btnPlay.textContent = '▶️';
-            currentBuffer = null;
-            nextBuffer = null;
-            pausedAt = 0;
-            seekBar.value = 0;
+            const buffer = await decodeAudioFile(item.file);
+            currentBuffer = buffer;
             currentIndex = index;
-
-            try {
-                currentBuffer = await loadFile(index);
-                trackTitle.textContent = playlist[index].name;
-                renderPlaylist();
-                updateTimeDisplay();
-
-                if (!skipAutoPlay && currentBuffer) {
-                    // Небольшая задержка чтобы старый источник точно отключился
-                    setTimeout(() => startSource(0), 10);
-                }
-            } catch(e) {
-                trackTitle.textContent = 'Ошибка';
-                console.error(e);
-                currentBuffer = null;
-                currentIndex = -1;
-            }
-        }
-
-        function actionSeekTo(percent) {
-            if (!currentBuffer) return;
-            const t = (percent / 100) * currentBuffer.duration;
-            const wasPlaying = isPlaying;
-            killAllSources();
-            isPlaying = false;
-            isSeeking = true;
-            pausedAt = t;
-            seekBar.value = percent;
+            trackTitleEl.textContent = item.name;
+            pausedAt = 0;
+            seekBar.value = 0;
             updateTimeDisplay();
-            if (seekTimeout) clearTimeout(seekTimeout);
-            seekTimeout = setTimeout(() => { isSeeking = false; if (wasPlaying) startSource(t); }, 200);
+
+            if(autoPlay) {
+                startSource(0);
+            }
+
+            if(gaplessEnabled && index+1 < flatPlaylist.length) {
+                preloadNext(index+1);
+            }
+
+            renderTreeView();
+            saveCurrentFolderState();
+            return true;
+        } catch(e) {
+            console.error('Ошибка загрузки трека:', e);
+            trackTitleEl.textContent = 'Ошибка: ' + (e.message || 'неизвестная');
+            return false;
+        } finally {
+            isLoading = false;
         }
+    }
 
-        btnPlay.onclick = actionPlay;
-        btnStop.onclick = actionStop;
-        btnPrev.onclick = actionRewind;
-        btnNext.onclick = actionForward;
-        chkGapless.onchange = saveSettings;
-
-        let seekStart = false;
-        seekBar.onpointerdown = () => { if (currentBuffer) { seekStart = true; killAllSources(); isPlaying = false; } };
-        seekBar.oninput = () => { if (currentBuffer && seekStart) { pausedAt = (parseFloat(seekBar.value) / 100) * currentBuffer.duration; updateTimeDisplay(); } };
-        seekBar.onpointerup = () => { if (currentBuffer && seekStart) { seekStart = false; actionSeekTo(parseFloat(seekBar.value)); } };
-
-        function startTimeUpdate() {
-            function update() {
-                if (!isPlaying || !currentSource || seekStart) { if (!seekStart) updateTimeDisplay(); animationId = requestAnimationFrame(update); return; }
-                if (currentBuffer) seekBar.value = (getCurrentTime() / currentBuffer.duration) * 100;
-                updateTimeDisplay();
-                animationId = requestAnimationFrame(update);
+    async function preloadNext(idx) {
+        if(idx>=flatPlaylist.length) return;
+        try {
+            const item = flatPlaylist[idx];
+            if(item && item.file) {
+                nextBuffer = await decodeAudioFile(item.file);
             }
-            update();
+        } catch(e) { nextBuffer = null; }
+    }
+
+    function startSource(offset) {
+        if(!currentBuffer) {
+            console.log('Нет буфера для воспроизведения');
+            return;
         }
-
-        function updateTimeDisplay() {
-            if (!currentBuffer) { trackTime.textContent = '0:00 / 0:00'; return; }
-            const cur = isPlaying ? getCurrentTime() : pausedAt;
-            trackTime.textContent = `${formatTime(cur)} / ${formatTime(currentBuffer.duration)}`;
+        if(currentSource) {
+            try{ currentSource.stop(); currentSource.disconnect(); }catch(e){}
         }
+        const ctx = initAudio();
+        let startOff = Math.min(Math.max(0, offset), currentBuffer.duration - 0.05);
 
-        function formatTime(s) { const m = Math.floor(s / 60), sec = Math.floor(s % 60); return `${m}:${sec.toString().padStart(2,'0')}`; }
+        currentSource = ctx.createBufferSource();
+        currentSource.buffer = currentBuffer;
+        currentSource.connect(graphInput || buildAudioGraph());
 
-        async function processFiles(files, appendMode = false) {
-            if (!files || files.length === 0) return;
+        isEndedProcessing = false;
 
-            showLoader('🎵 Обработка треков...', 'Подготовка...');
-
-            const audioFiles = [], cueFiles = [];
-
-            for (const file of files) {
-                const ext = file.name.split('.').pop().toLowerCase();
-                if (['mp3','flac','wav','ogg','m4a','opus','aac'].includes(ext)) audioFiles.push(file);
-                else if (ext === 'cue') cueFiles.push(file);
+        currentSource.onended = () => {
+            if (isEndedProcessing) {
+                console.log('onended уже обработан, пропускаем');
+                return;
             }
+            isEndedProcessing = true;
 
-            updateLoaderProgress(30, `Найдено: ${audioFiles.length} аудио, ${cueFiles.length} cue`);
+            // ВАЖНО: вычисляем реальную позицию в момент окончания
+            const currentPos = getCurrentPosition();
+            console.log('onended сработал, currentPos =', currentPos, 'duration =', currentBuffer ? currentBuffer.duration : 'null');
 
-            const newPlaylist = [];
+            // Трек считается закончившимся, если позиция близка к длительности
+            const ended = (currentPos >= currentBuffer.duration - 0.3) ||
+                         (Math.abs(currentBuffer.duration - currentPos) < 0.5);
 
-            for (const cue of cueFiles) {
-                try {
-                    const text = await cue.text();
-                    const tracks = parseCueAdvanced(text);
-                    if (!tracks.length) continue;
-                    const cueBase = cue.name.replace(/\.cue$/i, '');
-                    let matched = audioFiles.find(a => {
-                        const aBase = a.name.replace(/\.[^.]+$/, '').toLowerCase();
-                        return aBase === cueBase.toLowerCase() ||
-                               aBase.includes(cueBase.toLowerCase()) ||
-                               cueBase.toLowerCase().includes(aBase);
-                    });
-                    if (!matched && audioFiles.length === 1) {
-                        matched = audioFiles[0];
-                    }
-                    if (matched) {
-                        tracks.forEach((track, idx) => {
-                            newPlaylist.push({
-                                name: track.performer ? `${track.performer} — ${track.title}` : `${track.number}. ${track.title}`,
-                                file: matched,
-                                isCue: true,
-                                cueStart: track.index01,
-                                cueEnd: tracks[idx+1]?.index01 || null
-                            });
-                        });
-                    }
-                } catch(e) { console.warn('Ошибка парсинга CUE:', cue.name, e); }
-            }
+            console.log('ended =', ended, 'есть следующий?', currentIndex + 1 < flatPlaylist.length);
 
-            const usedFiles = new Set(newPlaylist.map(t => t.file));
-            for (const audio of audioFiles) {
-                if (!usedFiles.has(audio)) {
-                    newPlaylist.push({ name: audio.name, file: audio, isCue: false });
-                }
-            }
-
-            // ========== ГЛАВНЫЙ ФИКС: добавляем или заменяем ==========
-            if (appendMode && fullPlaylist.length > 0) {
-                // Добавляем новые треки к существующим
-                fullPlaylist = [...fullPlaylist, ...newPlaylist];
-                // Убираем дубликаты (по имени файла + CUE старт)
-                const seen = new Set();
-                fullPlaylist = fullPlaylist.filter(item => {
-                    const key = item.isCue ? `${item.file.name}_${item.cueStart}` : item.file.name;
-                    if (seen.has(key)) return false;
-                    seen.add(key);
-                    return true;
-                });
-            } else {
-                // Полная замена
-                fullPlaylist = newPlaylist;
-            }
-
-            fullPlaylist.sort((a,b) => a.name.localeCompare(b.name));
-            folderNameEl.textContent = `🎵 ${fullPlaylist.length} треков`;
-            playlist = [...fullPlaylist];
-            resetPlayer();
-            renderPlaylist();
-            applySearchFilter();
-            savePlaylistToStorage();
-
-            // Декодируем только FLAC и большие WAV (MP3 и другие не трогаем)
-            const toDecode = fullPlaylist.filter(item => {
-                const ext = item.file.name.split('.').pop().toLowerCase();
-                return ext === 'flac' || (ext === 'wav' && item.file.size > 20 * 1024 * 1024);
-            });
-
-            if (toDecode.length > 0 && !isDecodingInProgress) {
-                isDecodingInProgress = true;
-                showLoader('🎵 Декодирование FLAC/WAV...', `0 из ${toDecode.length}`);
-
-                for (let i = 0; i < toDecode.length; i++) {
-                    const item = toDecode[i];
-                    const cacheKey = item.isCue ?
-                        `${item.file.name}_${item.cueStart}_${item.cueEnd}` :
-                        item.file.name;
-
-                    if (bufferCache.has(cacheKey)) continue;
-
-                    const idx = fullPlaylist.findIndex(f => f === item);
-                    updateLoaderProgress(
-                        Math.floor((i / toDecode.length) * 100),
-                        `Декодирование: ${i+1} из ${toDecode.length} — ${item.name.substring(0, 35)}`
-                    );
-
-                    await new Promise(r => setTimeout(r, 5));
-
-                    try {
-                        const savedPlaylist = playlist;
-                        playlist = fullPlaylist;
-                        await loadFile(idx);
-                        playlist = savedPlaylist;
-                    } catch(e) {
-                        console.warn(`Не удалось декодировать: ${item.name}`, e);
-                    }
-                }
-
-                isDecodingInProgress = false;
-                hideLoader();
-
-                if (currentIndex !== -1 && playlist[currentIndex]) {
-                    try {
-                        currentBuffer = await loadFile(currentIndex);
-                        updateTimeDisplay();
-                    } catch(e) {}
-                }
-            } else {
-                hideLoader();
-            }
-        }
-
-        function resetPlayer() { killAllSources(); isPlaying = false; btnPlay.textContent = '▶️'; currentBuffer = null; currentIndex = -1; pausedAt = 0; seekBar.value = 0; trackTitle.textContent = 'Нет трека'; updateTimeDisplay(); }
-
-function renderPlaylist() {
-            playlistEl.innerHTML = '';
-            for (let i = 0; i < playlist.length; i++) {
-                const item = playlist[i];
-                const li = document.createElement('li');
-                li.style.display = 'flex';
-                li.style.justifyContent = 'space-between';
-                li.style.alignItems = 'center';
-                li.style.cursor = 'pointer';
-                li.style.gap = '6px';
-                li.draggable = true;
-                li.dataset.index = i;
-
-                // Чекбокс
-                const cb = document.createElement('input');
-                cb.type = 'checkbox';
-                cb.style.width = '20px';
-                cb.style.height = '20px';
-                cb.style.margin = '0';
-                cb.style.cursor = 'pointer';
-                cb.style.display = 'none';
-                cb.classList.add('playlist-checkbox');
-                cb.onclick = (e) => e.stopPropagation();
-                cb.onchange = () => {
-                    if (cb.checked) selectedIndices.add(i);
-                    else selectedIndices.delete(i);
-                    updateSelectionTools();
-                };
-
-                // Длинное нажатие (мобила)
-                let pressTimer;
-                li.ontouchstart = (e) => {
-                    pressTimer = setTimeout(() => {
-                        selectionMode = true;
-                        selectionTools.style.display = 'flex';
-                        document.querySelectorAll('#playlist li .playlist-checkbox').forEach(cb => {
-                            cb.style.display = 'inline-block';
-                        });
-                        if (!selectedIndices.has(i)) {
-                            cb.checked = true;
-                            selectedIndices.add(i);
-                        }
-                        cb.style.display = 'inline-block';
-                        updateSelectionTools();
-                        e.preventDefault();
-                    }, 500);
-                };
-                li.ontouchend = () => {
-                    clearTimeout(pressTimer);
-                    if (!selectionMode && selectedIndices.size === 0) {
-                        actionSelectTrack(i);
-                    }
-                };
-                li.ontouchmove = () => {
-                    clearTimeout(pressTimer);
-                };
-
-                // Для мыши
-                li.onmousedown = (e) => {
-                    if (e.button !== 0) return;
-                    pressTimer = setTimeout(() => {
-                        selectionMode = true;
-                        selectionTools.style.display = 'flex';
-                        document.querySelectorAll('#playlist li .playlist-checkbox').forEach(cb => {
-                            cb.style.display = 'inline-block';
-                        });
-                        if (!selectedIndices.has(i)) {
-                            cb.checked = true;
-                            selectedIndices.add(i);
-                        }
-                        cb.style.display = 'inline-block';
-                        updateSelectionTools();
-                    }, 500);
-                };
-                li.onmouseup = () => {
-                    clearTimeout(pressTimer);
-                    if (!selectionMode && selectedIndices.size === 0) {
-                        actionSelectTrack(i);
-                    }
-                };
-                li.onmouseleave = () => {
-                    clearTimeout(pressTimer);
-                };
-
-                const span = document.createElement('span');
-                span.innerHTML = item.isCue ? `${escapeHtml(item.name)} <span class="cue-badge">CUE</span>` : escapeHtml(item.name);
-                span.style.flex = '1';
-                span.onclick = (e) => e.stopPropagation();
-
-                const btnUp = document.createElement('button');
-                btnUp.textContent = '▲';
-                btnUp.style.background = 'none';
-                btnUp.style.border = 'none';
-                btnUp.style.color = 'var(--text2)';
-                btnUp.style.fontSize = '1rem';
-                btnUp.style.cursor = 'pointer';
-                btnUp.style.padding = '4px 6px';
-                btnUp.onclick = (e) => {
-                    e.stopPropagation();
-                    if (selectionMode) return;
-                    if (i > 0) {
-                        [playlist[i-1], playlist[i]] = [playlist[i], playlist[i-1]];
-                        fullPlaylist = [...playlist];
-                        renderPlaylist();
-                        if (currentIndex === i) currentIndex = i-1;
-                        else if (currentIndex === i-1) currentIndex = i;
-                        savePlaylistToStorage();
-                    }
-                };
-
-                const btnDown = document.createElement('button');
-                btnDown.textContent = '▼';
-                btnDown.style.background = 'none';
-                btnDown.style.border = 'none';
-                btnDown.style.color = 'var(--text2)';
-                btnDown.style.fontSize = '1rem';
-                btnDown.style.cursor = 'pointer';
-                btnDown.style.padding = '4px 6px';
-                btnDown.onclick = (e) => {
-                    e.stopPropagation();
-                    if (selectionMode) return;
-                    if (i < playlist.length - 1) {
-                        [playlist[i], playlist[i+1]] = [playlist[i+1], playlist[i]];
-                        fullPlaylist = [...playlist];
-                        renderPlaylist();
-                        if (currentIndex === i) currentIndex = i+1;
-                        else if (currentIndex === i+1) currentIndex = i;
-                        savePlaylistToStorage();
-                    }
-                };
-
-                const delBtn = document.createElement('button');
-                delBtn.textContent = '🗑';
-                delBtn.style.border = 'none';
-                delBtn.style.borderRadius = '6px';
-                delBtn.style.padding = '4px 8px';
-                delBtn.style.fontSize = '0.85rem';
-                delBtn.style.fontWeight = 'bold';
-                delBtn.style.cursor = 'pointer';
-                delBtn.style.minWidth = '48px';
-                if (i === currentIndex) {
-                    delBtn.style.color = '#fff';
-                    delBtn.style.background = 'rgba(255, 255, 255, 0.2)';
+            if (ended && currentIndex + 1 < flatPlaylist.length) {
+                console.log('Трек закончился, переключаем на следующий. gapless =', gaplessEnabled);
+                if (gaplessEnabled) {
+                    playNextTrack();
                 } else {
-                    delBtn.style.color = '#e94560';
-                    delBtn.style.background = 'rgba(233, 69, 96, 0.15)';
+                    if (nextTrackTimer) clearTimeout(nextTrackTimer);
+                    nextTrackTimer = setTimeout(() => {
+                        playNextTrack();
+                        nextTrackTimer = null;
+                    }, 2000);
                 }
-                delBtn.onclick = (e) => {
-                    e.stopPropagation();
-                    if (confirm(`Удалить "${item.name}"?`)) {
-                        const globalIndex = fullPlaylist.findIndex(fi => fi.file === item.file && fi.cueStart === item.cueStart);
-                        if (globalIndex !== -1) fullPlaylist.splice(globalIndex, 1);
-                        filterPlaylist();
-                        folderNameEl.textContent = `🎵 ${fullPlaylist.length} треков`;
-                        if (currentIndex === i) {
-                            actionStop();
-                            currentIndex = -1;
-                            currentBuffer = null;
-                            trackTitle.textContent = 'Нет трека';
-                        } else if (currentIndex > i) currentIndex--;
-                        if (fullPlaylist.length === 0) {
-                            folderNameEl.textContent = 'Не выбрано';
-                            playlistStats.textContent = '';
-                        }
-                        savePlaylistToStorage();
-                        if (bufferCache.has(item.file.name)) bufferCache.delete(item.file.name);
-                        selectedIndices.clear();
-                        selectionMode = false;
-                        selectionTools.style.display = 'none';
-                    }
-                };
-
-                li.appendChild(cb);
-                li.appendChild(span);
-                li.appendChild(btnUp);
-                li.appendChild(btnDown);
-                li.appendChild(delBtn);
-                if (i === currentIndex) li.classList.add('active');
-                playlistEl.appendChild(li);
-            }
-        }
-
-        function filterPlaylist() {
-            const query = currentSearchQuery.toLowerCase();
-            playlist = query ? fullPlaylist.filter(i => i.name.toLowerCase().includes(query)) : [...fullPlaylist];
-            renderPlaylist();
-            playlistStats.textContent = query ? `🔍 Найдено: ${playlist.length} из ${fullPlaylist.length}` : `📀 Всего: ${fullPlaylist.length}`;
-            if (currentIndex >= 0 && !playlist.includes(fullPlaylist[currentIndex])) actionStop();
-        }
-
-        function applySearchFilter() { currentSearchQuery = playlistSearch.value; filterPlaylist(); }
-        playlistSearch.oninput = applySearchFilter;
-        playlistSearchClear.onclick = () => { playlistSearch.value = ''; applySearchFilter(); playlistSearch.focus(); };
-
-        btnSelect.onclick = () => {
-            fileInput.value = '';
-            fileInput.onchange = async (e) => {
-                if (e.target.files.length) {
-                    await processFiles(Array.from(e.target.files), true); // ДОБАВЛЯЕМ
-                }
-            };
-            fileInput.click();
-        };
-
-        btnClearPlaylist.onclick = () => {
-            if (confirm('Очистить весь плейлист?')) {
-                fullPlaylist = [];
-                playlist = [];
-                currentIndex = -1;
-                currentBuffer = null;
-                isPlaying = false;
-                btnPlay.textContent = '▶️';
-                pausedAt = 0;
-                seekBar.value = 0;
-                trackTitle.textContent = 'Нет трека';
-                folderNameEl.textContent = 'Не выбрано';
-                renderPlaylist();
-                updateTimeDisplay();
-                playlistStats.textContent = '';
-                bufferCache.clear();
-                localStorage.removeItem('saved-playlist');
+            } else if (ended) {
+                console.log('Трек закончился, следующих нет');
+                actionStop();
+            } else {
+                console.log('onended сработал, но трек не закончился (ошибка)');
+                // Сбрасываем флаг, чтобы можно было обработать повторно
+                setTimeout(() => { isEndedProcessing = false; }, 100);
             }
         };
 
-        btnSelectFolderAll.onclick = async () => {
-            if (window.showDirectoryPicker) {
-                try {
-                    const dirHandle = await window.showDirectoryPicker();
-                    const files = [];
-                    for await (const entry of dirHandle.values()) {
-                        if (entry.kind === 'file') {
-                            const file = await entry.getFile();
-                            const ext = file.name.split('.').pop().toLowerCase();
-                            if (['mp3','flac','wav','ogg','m4a','opus','aac','cue'].includes(ext)) {
-                                files.push(file);
+        currentSource.start(0, startOff);
+        startTime = ctx.currentTime - startOff;
+        pausedAt = startOff;
+        isPlaying = true;
+        btnPlay.textContent = '⏸️';
+        startTimeLoop();
+        console.log('Воспроизведение начато с позиции', startOff);
+    }
+
+    function actionPlayPause() {
+        if(!currentBuffer) {
+            if(flatPlaylist.length > 0 && currentIndex === -1) {
+                loadTrackByIndex(0, true);
+            }
+            return;
+        }
+        if(isPlaying) {
+            pausedAt = getCurrentPosition();
+            if(currentSource) { try{ currentSource.stop(); currentSource.disconnect(); }catch(e){} currentSource=null; }
+            isPlaying=false;
+            btnPlay.textContent='▶️';
+            updateTimeDisplay();
+        } else {
+            startSource(pausedAt);
+        }
+    }
+
+    function actionStop() {
+        if(nextTrackTimer) clearTimeout(nextTrackTimer);
+        if(currentSource) {
+            try{ currentSource.stop(); }catch(e){}
+            currentSource=null;
+        }
+        isPlaying=false;
+        btnPlay.textContent='▶️';
+        pausedAt=0;
+        updateTimeDisplay();
+        seekBar.value=0;
+    }
+
+    function actionRewind() {
+        if(!currentBuffer) return;
+        let t = Math.max(0, getCurrentPosition() - 10);
+        if(currentSource) {
+            try{ currentSource.stop(); currentSource.disconnect(); }catch(e){}
+            currentSource=null;
+        }
+        isPlaying=false;
+        pausedAt=t;
+        startSource(t);
+    }
+
+    function actionForward() {
+        if(!currentBuffer) return;
+        let t = Math.min(currentBuffer.duration - 0.1, getCurrentPosition() + 10);
+        if(t >= currentBuffer.duration - 0.1) {
+            // Если дошли до конца — останавливаемся
+            actionStop();
+            return;
+        }
+        if(currentSource) {
+            try{ currentSource.stop(); currentSource.disconnect(); }catch(e){}
+            currentSource=null;
+        }
+        isPlaying=false;
+        pausedAt=t;
+        startSource(t);
+    }
+
+    function seekTo(percent) {
+        if(!currentBuffer) return;
+        const t = (percent/100)*currentBuffer.duration;
+        const wasPlaying=isPlaying;
+        if(currentSource) {
+            try{ currentSource.stop(); currentSource.disconnect(); }catch(e){}
+            currentSource=null;
+        }
+        isPlaying=false;
+        pausedAt=t;
+        updateTimeDisplay();
+        isSeeking=true;
+        if(seekTimeout) clearTimeout(seekTimeout);
+        seekTimeout = setTimeout(()=>{
+            isSeeking=false;
+            if(wasPlaying) startSource(t);
+        }, 200);
+    }
+
+    // ==================== ДЕРЕВО И ФАЙЛЫ ====================
+    async function getAudioFilesFromDir(dirHandle, relativePath = '') {
+        let results = [];
+        for await (const entry of dirHandle.values()) {
+            if(entry.kind === 'file') {
+                const ext = entry.name.split('.').pop().toLowerCase();
+                if(['mp3','flac','wav','ogg','m4a','opus','aac'].includes(ext)) {
+                    const file = await entry.getFile();
+                    const displayPath = relativePath ? `${relativePath}/${entry.name}` : entry.name;
+                    results.push({ file, name: displayPath, path: displayPath });
+                }
+            } else if(entry.kind === 'directory') {
+                const sub = await getAudioFilesFromDir(entry, relativePath ? `${relativePath}/${entry.name}` : entry.name);
+                results.push(...sub);
+            }
+        }
+        return results;
+    }
+
+    function saveCurrentFolderState() {
+        if(currentFolderHandle) {
+            const state = { folderName: currentFolderHandle.name, currentIndex: currentIndex };
+            localStorage.setItem('last_folder_state', JSON.stringify(state));
+            localStorage.setItem('open_folders', JSON.stringify([...openFolders]));
+        }
+    }
+
+    async function buildPlaylistFromHandle(dirHandle, restoreAfterLoad = true) {
+        showLoader('🔍 Сканирование...', 'Поиск аудиофайлов');
+        const files = await getAudioFilesFromDir(dirHandle);
+        hideLoader();
+        files.sort((a,b)=>a.name.localeCompare(b.name));
+        flatPlaylist = files;
+        if(flatPlaylist.length===0) folderPathDisplay.innerHTML = '📂 Нет аудиофайлов';
+        else folderPathDisplay.innerHTML = `📁 ${dirHandle.name} | 🎵 ${flatPlaylist.length} треков`;
+
+        if(savedOpenFolders.size > 0) openFolders = new Set(savedOpenFolders);
+        renderTreeView();
+
+        if(restoreAfterLoad && savedCurrentIndex >= 0 && savedCurrentIndex < flatPlaylist.length) {
+            setTimeout(() => loadTrackByIndex(savedCurrentIndex, false), 100);
+        }
+        saveCurrentFolderState();
+    }
+
+    function filterPlaylistByQuery() {
+        if(!searchQuery) return flatPlaylist;
+        return flatPlaylist.filter(item => item.name.toLowerCase().includes(searchQuery.toLowerCase()));
+    }
+
+    let openFolders = new Set();
+
+    function renderTreeView() {
+        const filtered = filterPlaylistByQuery();
+        if(!filtered.length) { treeContainer.innerHTML = '<div class="empty-message">🔍 Ничего не найдено</div>'; return; }
+        const root = {};
+        for(let idx=0; idx<filtered.length; idx++) {
+            const item = filtered[idx];
+            const originalIdx = flatPlaylist.findIndex(f => f.file === item.file && f.path === item.path);
+            const parts = item.name.split('/');
+            let current = root;
+            for(let i=0; i<parts.length; i++) {
+                const part = parts[i];
+                const isLast = (i === parts.length-1);
+                if(isLast) {
+                    if(!current[part]) current[part] = { type:'file', index:originalIdx, name:part };
+                } else {
+                    if(!current[part]) current[part] = { type:'folder', children:{} };
+                    current = current[part].children;
+                }
+            }
+        }
+
+        function renderNode(nodeObj, container, pathPrefix = '') {
+            const sortedKeys = Object.keys(nodeObj).sort((a,b)=> {
+                const aIsFolder = nodeObj[a].type === 'folder';
+                const bIsFolder = nodeObj[b].type === 'folder';
+                if(aIsFolder && !bIsFolder) return -1;
+                if(!aIsFolder && bIsFolder) return 1;
+                return a.localeCompare(b);
+            });
+            for(let key of sortedKeys) {
+                const entry = nodeObj[key];
+                const div = document.createElement('div');
+                div.className = 'tree-node';
+                const currentPath = pathPrefix ? `${pathPrefix}/${key}` : key;
+                if(entry.type === 'folder') {
+                    const folderDiv = document.createElement('div');
+                    folderDiv.className = 'tree-folder';
+                    folderDiv.innerHTML = `<span>📁</span><span>${escapeHtml(key)}</span>`;
+                    const childrenDiv = document.createElement('div');
+                    childrenDiv.className = 'tree-children';
+                    if(openFolders.has(currentPath)) childrenDiv.classList.add('open');
+                    folderDiv.onclick = (e) => {
+                        e.stopPropagation();
+                        childrenDiv.classList.toggle('open');
+                        if(childrenDiv.classList.contains('open')) openFolders.add(currentPath);
+                        else openFolders.delete(currentPath);
+                        localStorage.setItem('open_folders', JSON.stringify([...openFolders]));
+                    };
+                    div.appendChild(folderDiv);
+                    div.appendChild(childrenDiv);
+                    renderNode(entry.children, childrenDiv, currentPath);
+                } else {
+                    const fileDiv = document.createElement('div');
+                    fileDiv.className = 'tree-file';
+                    if(entry.index === currentIndex) fileDiv.classList.add('active-track');
+                    fileDiv.innerHTML = `<span>🎵</span><span>${escapeHtml(entry.name)}</span>`;
+                    fileDiv.onclick = async () => { await loadTrackByIndex(entry.index, true); };
+                    div.appendChild(fileDiv);
+                }
+                container.appendChild(div);
+            }
+        }
+        treeContainer.innerHTML = '';
+        const rootDiv = document.createElement('div');
+        renderNode(root, rootDiv, '');
+        treeContainer.appendChild(rootDiv);
+
+        if(openFolders.size === 0) {
+            setTimeout(() => {
+                const folders = treeContainer.querySelectorAll('.tree-folder');
+                folders.forEach(folderDiv => {
+                    const parent = folderDiv.parentElement;
+                    const childrenDiv = parent.querySelector('.tree-children');
+                    if(childrenDiv && childrenDiv.children.length>0) {
+                        const directFiles = Array.from(childrenDiv.querySelectorAll(':scope > .tree-node > .tree-file'));
+                        if(directFiles.length>0) {
+                            childrenDiv.classList.add('open');
+                            let path = '';
+                            let el = folderDiv.parentElement;
+                            while(el && el.parentElement !== treeContainer) {
+                                const prevFolder = el.parentElement?.querySelector(':scope > .tree-folder span:last-child')?.innerText;
+                                if(prevFolder) path = prevFolder + (path ? '/'+path : '');
+                                el = el.parentElement?.parentElement;
                             }
+                            const folderName = folderDiv.querySelector('span:last-child').innerText;
+                            const fullPath = path ? `${path}/${folderName}` : folderName;
+                            openFolders.add(fullPath);
                         }
                     }
-                    if (files.length) {
-                        await processFiles(files, true); // ДОБАВЛЯЕМ
-                    } else {
-                        folderNameEl.textContent = '❌ Нет аудиофайлов в папке';
-                        setTimeout(() => {
-                            if (fullPlaylist.length) folderNameEl.textContent = `🎵 ${fullPlaylist.length} треков`;
-                            else folderNameEl.textContent = 'Не выбрано';
-                        }, 2000);
-                    }
-                    return;
-                } catch(e) {
-                    console.log('Выбор папки отменён:', e);
-                }
-            }
-            fileInput.value = '';
-            fileInput.onchange = async (e) => {
-                if (e.target.files.length) {
-                    await processFiles(Array.from(e.target.files), true); // ДОБАВЛЯЕМ
-                }
-            };
-            fileInput.click();
-        };
+                });
+                localStorage.setItem('open_folders', JSON.stringify([...openFolders]));
+            }, 50);
+        }
+    }
 
-        function escapeHtml(str) { return str.replace(/[&<>]/g, m => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;' }[m])); }
+    async function selectRootFolder() {
+        if(!window.showDirectoryPicker) { alert('Ваш браузер не поддерживает выбор папок'); return; }
+        try {
+            const handle = await window.showDirectoryPicker();
+            currentFolderHandle = handle;
+            folderStack = [handle];
+            await buildPlaylistFromHandle(handle);
+        } catch(e) { console.log('отмена'); }
+    }
 
-        // ======================== РАДИО ========================
-        const stationUrl = document.getElementById('station-url');
-        const stationName = document.getElementById('station-name');
-        const btnAddStation = document.getElementById('btn-add-station');
-        const btnRadioPlay = document.getElementById('btn-radio-play');
-        const btnRadioStop = document.getElementById('btn-radio-stop');
-        const radioStatusEl = document.getElementById('radio-status');
-        const onlineSearch = document.getElementById('online-search');
-        const btnOnlineSearch = document.getElementById('btn-online-search');
-        const searchResultsContainer = document.getElementById('search-results-container');
-        const favoritesContainer = document.getElementById('favorites-container');
-        const btnPrevPage = document.getElementById('btn-prev-page');
-        const btnNextPage = document.getElementById('btn-next-page');
-        const pageInfoEl = document.getElementById('page-info');
-        const btnFavPrev = document.getElementById('btn-fav-prev');
-        const btnFavNext = document.getElementById('btn-fav-next');
-        const favPageInfoEl = document.getElementById('fav-page-info');
+    async function navigateUp() {
+        if(!currentFolderHandle) return;
+        if(folderStack.length <= 1) {
+            try {
+                const parent = await currentFolderHandle.parent;
+                if(parent) {
+                    currentFolderHandle = parent;
+                    folderStack = [parent];
+                    await buildPlaylistFromHandle(parent);
+                } else alert('Это корневая папка');
+            } catch(e) { alert('Невозможно подняться выше'); }
+        } else {
+            folderStack.pop();
+            currentFolderHandle = folderStack[folderStack.length-1];
+            await buildPlaylistFromHandle(currentFolderHandle);
+        }
+    }
+
+    async function restoreLastFolder() {
+        const lastState = localStorage.getItem('last_folder_state');
+        const savedOpenFoldersStr = localStorage.getItem('open_folders');
+        if(savedOpenFoldersStr) {
+            try { savedOpenFolders = new Set(JSON.parse(savedOpenFoldersStr)); } catch(e) {}
+        }
+        if(lastState) {
+            try {
+                const { folderName, currentIndex: idx } = JSON.parse(lastState);
+                savedFolderName = folderName;
+                savedCurrentIndex = idx;
+                folderPathDisplay.innerHTML = `📂 Последняя папка: ${folderName} → нажмите для восстановления`;
+                folderPathDisplay.onclick = () => selectRootFolder();
+            } catch(e) {}
+        }
+    }
+
+    async function clearEverything() {
+        if(nextTrackTimer) clearTimeout(nextTrackTimer);
+        flatPlaylist = [];
+        currentIndex = -1;
+        currentBuffer = null;
+        actionStop();
+        trackTitleEl.textContent = 'Нет трека';
+        renderTreeView();
+        folderPathDisplay.innerHTML = '📂 Очищено';
+        folderPathDisplay.onclick = null;
+        currentFolderHandle = null;
+        folderStack = [];
+        openFolders.clear();
+        localStorage.removeItem('last_folder_state');
+        localStorage.removeItem('open_folders');
+    }
+
+    // ==================== РАДИО ====================
+    function stopRadio() { if(radioAudio) { try{ radioAudio.pause(); radioAudio.src = ''; }catch(e){} radioAudio=null; } if(radioSource) { try{ radioSource.disconnect(); }catch(e){} radioSource=null; } document.getElementById('radio-status').textContent = '⏹ Остановлено'; }
+
+    async function playRadioStream(url, name) {
+        if(!url) return;
+        stopRadio();
+        const rs = document.getElementById('radio-status');
+        rs.innerHTML = '🔄 Подключение... <span class="spinner"></span>';
+        try {
+            const audio = new Audio();
+            audio.crossOrigin = 'anonymous';
+            audio.src = url;
+            const ctx = initAudio();
+            if(ctx.state === 'suspended') await ctx.resume();
+            radioSource = ctx.createMediaElementSource(audio);
+            radioSource.connect(graphInput || buildAudioGraph());
+            radioAudio = audio;
+            await audio.play();
+            rs.innerHTML = `🎵 ${name || 'Радио'}`;
+        } catch(e) { rs.innerHTML = `❌ Ошибка: ${e.message}`; }
+    }
+
+    function loadFavorites() { try { favoriteStations = JSON.parse(localStorage.getItem('radio-favorites') || '[]'); renderFavorites(); } catch(e) {} }
+    function saveFavorites() { localStorage.setItem('radio-favorites', JSON.stringify(favoriteStations)); renderFavorites(); }
+
+    function addToFavorites(name, url) {
+        if(!favoriteStations.find(s => s.url === url)) {
+            favoriteStations.push({ name, url });
+            saveFavorites();
+            document.getElementById('radio-status').textContent = `⭐ "${name}" добавлено в избранное`;
+            return true;
+        } else {
+            document.getElementById('radio-status').textContent = `⚠️ "${name}" уже в избранном`;
+            return false;
+        }
+    }
+
+    function renderSearchResults() {
+        const start = searchCurrentPage * SEARCH_PAGE_SIZE;
+        const pageResults = searchResults.slice(start, start + SEARCH_PAGE_SIZE);
+        const container = document.getElementById('search-results-container');
         const resultsCountSpan = document.getElementById('results-count');
+
+        if(!searchResults.length) {
+            container.innerHTML = '<div class="empty-message">🔍 Ничего не найдено</div>';
+            resultsCountSpan.textContent = '';
+        } else if(!pageResults.length) {
+            container.innerHTML = '<div class="empty-message">📄 Нет результатов</div>';
+            resultsCountSpan.textContent = `(${searchResults.length})`;
+        } else {
+            container.innerHTML = '';
+            pageResults.forEach(s => {
+                const div = document.createElement('div');
+                div.className = 'station-item';
+                div.innerHTML = `
+                    <div class="station-name">
+                        ${escapeHtml(s.name)}
+                        ${s.country ? `<div class="station-country">📍 ${escapeHtml(s.country)}</div>` : ''}
+                    </div>
+                    <div class="station-actions">
+                        <button class="fav-star" title="Добавить в избранное">⭐</button>
+                    </div>
+                `;
+                div.onclick = (e) => { if(!e.target.classList.contains('fav-star')) playRadioStream(s.url, s.name); };
+                div.querySelector('.fav-star').onclick = (e) => { e.stopPropagation(); addToFavorites(s.name, s.url); };
+                container.appendChild(div);
+            });
+            resultsCountSpan.textContent = `(${searchResults.length})`;
+        }
+        const totalPages = Math.ceil(searchResults.length / SEARCH_PAGE_SIZE);
+        document.getElementById('search-page-info').textContent = `Страница ${searchCurrentPage+1} из ${totalPages||1}`;
+        document.getElementById('btn-search-prev').disabled = searchCurrentPage === 0;
+        document.getElementById('btn-search-next').disabled = searchCurrentPage >= totalPages-1;
+    }
+
+    function renderFavorites() {
+        const start = favCurrentPage * FAV_PAGE_SIZE;
+        const pageFavs = favoriteStations.slice(start, start + FAV_PAGE_SIZE);
+        const container = document.getElementById('favorites-container');
         const favCountSpan = document.getElementById('fav-count');
 
-        let favoriteStations = [];
-        let searchResults = [];
-        let currentPage = 0;
-        let currentFavPage = 0;
-        const PAGE_SIZE = 20;
-        const FAV_PAGE_SIZE = 15;
-
-        function loadFavorites() {
-            try { favoriteStations = JSON.parse(localStorage.getItem('radio-favorites') || '[]'); } catch(e) {}
-            renderFavorites();
-            const lastUrl = localStorage.getItem('lastRadioUrl');
-            const lastName = localStorage.getItem('lastRadioName');
-            if (lastUrl && lastName) { stationUrl.value = lastUrl; stationName.value = lastName; }
-        }
-
-        function saveFavorites() { localStorage.setItem('radio-favorites', JSON.stringify(favoriteStations)); renderFavorites(); }
-
-        function renderStationItem(station, onClick) {
-            const div = document.createElement('div');
-            div.className = 'station-item';
-            div.innerHTML = `<div class="station-name">${escapeHtml(station.name)}${station.country ? `<div class="station-country">📍 ${escapeHtml(station.country)}</div>` : ''}</div><div class="station-right">${station.codec ? `<span class="station-codec">${escapeHtml(station.codec)}</span>` : ''}</div>`;
-            div.onclick = onClick;
-            return div;
-        }
-
-        function renderFavoriteItem(station, idx, onDelete) {
-            const div = document.createElement('div');
-            div.className = 'favorite-item';
-            div.innerHTML = `<div class="favorite-name">⭐ ${escapeHtml(station.name)}</div><button class="delete-btn">🗑</button>`;
-            div.onclick = (e) => { if (!e.target.classList.contains('delete-btn')) { stationUrl.value = station.url; stationName.value = station.name; playRadioStream(station.url, station.name); } };
-            div.querySelector('.delete-btn').onclick = (e) => { e.stopPropagation(); onDelete(); };
-            return div;
-        }
-
-        function renderSearchResults() {
-            const start = currentPage * PAGE_SIZE;
-            const pageResults = searchResults.slice(start, start + PAGE_SIZE);
-            searchResultsContainer.innerHTML = '';
-            if (!searchResults.length) { searchResultsContainer.innerHTML = '<div class="empty-message">🔍 Ничего не найдено</div>'; resultsCountSpan.textContent = ''; }
-            else if (!pageResults.length) searchResultsContainer.innerHTML = '<div class="empty-message">📄 Нет результатов</div>';
-            else {
-                pageResults.forEach(s => {
-                    const stationEl = renderStationItem(s, () => {
-                        stationUrl.value = s.url;
-                        stationName.value = s.name;
-                        playRadioStream(s.url, s.name);
-                        highlightSelectedStation(s.url, s.name);
-                    });
-                    searchResultsContainer.appendChild(stationEl);
-                });
-            }
-            const totalPages = Math.ceil(searchResults.length / PAGE_SIZE);
-            resultsCountSpan.textContent = `(${searchResults.length})`;
-            pageInfoEl.textContent = `Страница ${currentPage+1} из ${totalPages||1}`;
-            btnPrevPage.disabled = currentPage === 0;
-            btnNextPage.disabled = currentPage >= totalPages-1;
-        }
-
-        function renderFavorites() {
-            const start = currentFavPage * FAV_PAGE_SIZE;
-            const pageFavs = favoriteStations.slice(start, start + FAV_PAGE_SIZE);
-            favoritesContainer.innerHTML = '';
-            if (!favoriteStations.length) favoritesContainer.innerHTML = '<div class="empty-message">⭐ Нет избранных</div>';
-            else if (!pageFavs.length) favoritesContainer.innerHTML = '<div class="empty-message">📄 Нет результатов</div>';
-            else {
-                pageFavs.forEach((s, i) => {
-                    const favEl = renderFavoriteItem(s, start+i, () => {
-                        favoriteStations.splice(start+i,1);
-                        if (currentFavPage && !favoriteStations.length) currentFavPage--;
-                        saveFavorites();
-                        radioStatusEl.textContent = '🗑 Удалено';
-                        highlightSelectedStation('', ''); // убираем подсветку после удаления
-                    });
-                    // Добавляем клик для воспроизведения с подсветкой
-                    favEl.onclick = (e) => {
-                        if (!e.target.classList.contains('delete-btn')) {
-                            stationUrl.value = s.url;
-                            stationName.value = s.name;
-                            playRadioStream(s.url, s.name);
-                            highlightSelectedStation(s.url, s.name);
-                        }
-                    };
-                    favoritesContainer.appendChild(favEl);
-                });
-            }
-            const totalPages = Math.ceil(favoriteStations.length / FAV_PAGE_SIZE);
+        if(!favoriteStations.length) {
+            container.innerHTML = '<div class="empty-message">⭐ Нет избранных станций</div>';
+            favCountSpan.textContent = '';
+        } else if(!pageFavs.length) {
+            container.innerHTML = '<div class="empty-message">📄 Нет результатов</div>';
             favCountSpan.textContent = `(${favoriteStations.length})`;
-            favPageInfoEl.textContent = `Страница ${currentFavPage+1} из ${totalPages||1}`;
-            btnFavPrev.disabled = currentFavPage === 0;
-            btnFavNext.disabled = currentFavPage >= totalPages-1;
+        } else {
+            container.innerHTML = '';
+            pageFavs.forEach((s, idx) => {
+                const globalIdx = favoriteStations.findIndex(f => f.url === s.url);
+                const div = document.createElement('div');
+                div.className = 'favorite-item';
+                div.innerHTML = `
+                    <div class="station-name">⭐ ${escapeHtml(s.name)}</div>
+                    <div class="station-actions">
+                        <button class="delete-btn" title="Удалить">🗑</button>
+                    </div>
+                `;
+                div.onclick = (e) => { if(!e.target.classList.contains('delete-btn')) playRadioStream(s.url, s.name); };
+                div.querySelector('.delete-btn').onclick = (e) => { e.stopPropagation(); favoriteStations.splice(globalIdx, 1); saveFavorites(); if(favCurrentPage && !favoriteStations.length) favCurrentPage--; renderFavorites(); };
+                container.appendChild(div);
+            });
+            favCountSpan.textContent = `(${favoriteStations.length})`;
         }
+        const totalPages = Math.ceil(favoriteStations.length / FAV_PAGE_SIZE);
+        document.getElementById('fav-page-info').textContent = `Страница ${favCurrentPage+1} из ${totalPages||1}`;
+        document.getElementById('btn-fav-prev').disabled = favCurrentPage === 0;
+        document.getElementById('btn-fav-next').disabled = favCurrentPage >= totalPages-1;
+    }
 
-        btnFavPrev.onclick = () => { if (currentFavPage > 0) { currentFavPage--; renderFavorites(); } };
-        btnFavNext.onclick = () => { if ((currentFavPage+1) * FAV_PAGE_SIZE < favoriteStations.length) { currentFavPage++; renderFavorites(); } };
-        btnPrevPage.onclick = () => { if (currentPage > 0) { currentPage--; renderSearchResults(); } };
-        btnNextPage.onclick = () => { if ((currentPage+1) * PAGE_SIZE < searchResults.length) { currentPage++; renderSearchResults(); } };
-
-        async function searchRadioStations(query) {
-            if (!query || query.length < 2) { radioStatusEl.textContent = '🔍 Введите минимум 2 символа'; return; }
-            radioStatusEl.innerHTML = '🔍 Поиск... <span class="spinner"></span>';
-            radioStatusEl.style.color = '#ffa500';
+    async function searchRadioStations(query) {
+        if(!query || query.length<2) { document.getElementById('radio-status').textContent = '🔍 Введите минимум 2 символа'; return; }
+        const rs = document.getElementById('radio-status');
+        rs.innerHTML = '🔍 Поиск... <span class="spinner"></span>';
+        try {
+            const resp = await fetch(`https://de1.api.radio-browser.info/json/stations/search?name=${encodeURIComponent(query)}&limit=100&hidebroken=true`);
+            const data = await resp.json();
             searchResults = [];
-            currentPage = 0;
+            for(let s of data) {
+                let url = s.url_resolved || s.url;
+                if(url.includes('.m3u') || url.includes('.pls')) continue;
+                searchResults.push({ name: s.name, url: url, country: s.country, codec: s.codec });
+            }
+            searchCurrentPage = 0;
+            renderSearchResults();
+            rs.innerHTML = searchResults.length ? `✅ Найдено: ${searchResults.length} станций` : '❌ Ничего не найдено';
+        } catch(e) { rs.innerHTML = '❌ Ошибка поиска'; searchResults = []; renderSearchResults(); }
+    }
+
+    function exportFavorites() {
+        const dataStr = JSON.stringify(favoriteStations, null, 2);
+        const blob = new Blob([dataStr], {type: 'application/json'});
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `radio_favorites_${new Date().toISOString().slice(0,19)}.json`;
+        a.click();
+        URL.revokeObjectURL(url);
+        document.getElementById('radio-status').textContent = '📤 Экспортировано';
+    }
+
+    function importFavorites() {
+        const input = document.createElement('input');
+        input.type = 'file';
+        input.accept = '.json';
+        input.onchange = async (e) => {
+            const file = e.target.files[0];
+            if(!file) return;
             try {
-                const controller = new AbortController();
-                const timeout = setTimeout(() => controller.abort(), 12000);
-                const resp = await fetch(`https://de1.api.radio-browser.info/json/stations/search?name=${encodeURIComponent(query)}&limit=100&hidebroken=true&order=clickcount&reverse=true`, { signal: controller.signal });
-                clearTimeout(timeout);
-                if (!resp.ok) throw new Error();
-                const data = await resp.json();
-                for (const s of data) {
-                    let url = s.url_resolved || s.url;
-                    if (url.includes('.m3u') || url.includes('.pls')) continue;
-                    if (url.startsWith('http://')) url = url.replace('http://', 'https://');
-                    searchResults.push({ name: s.name, url: url, country: s.country, codec: s.codec });
-                }
-                renderSearchResults();
-                radioStatusEl.innerHTML = searchResults.length ? `✅ Найдено: ${searchResults.length} станций` : '❌ Ничего не найдено';
-                radioStatusEl.style.color = searchResults.length ? '#4caf50' : '#e94560';
-            } catch(e) {
-                searchResultsContainer.innerHTML = `<div class="empty-message">❌ Ошибка поиска</div>`;
-                radioStatusEl.innerHTML = '❌ Ошибка поиска';
-                radioStatusEl.style.color = '#e94560';
-            }
-        }
-
-        btnOnlineSearch.onclick = () => { const q = onlineSearch.value.trim(); if (q) searchRadioStations(q); else radioStatusEl.textContent = '🔍 Введите запрос'; };
-        onlineSearch.onkeydown = (e) => { if (e.key === 'Enter') btnOnlineSearch.click(); };
-        btnRadioPlay.onclick = async () => { const url = stationUrl.value.trim(), name = stationName.value.trim(); if (url) await playRadioStream(url, name); else radioStatusEl.textContent = '⚠️ Введите URL'; };
-        btnRadioStop.onclick = stopRadio;
-        btnAddStation.onclick = () => {
-            const url = stationUrl.value.trim(), name = stationName.value.trim();
-            if (!url || !name) { radioStatusEl.textContent = '❌ Введите URL и название'; return; }
-            if (!favoriteStations.find(s => s.url === url)) { favoriteStations.push({ name, url }); saveFavorites(); radioStatusEl.innerHTML = `✅ "${name}" добавлено`; stationUrl.value = ''; stationName.value = ''; }
-            else radioStatusEl.textContent = '⚠️ Уже есть';
+                const text = await file.text();
+                const imported = JSON.parse(text);
+                if(Array.isArray(imported)) {
+                    let added = 0;
+                    for(const s of imported) {
+                        if(s.url && s.name && !favoriteStations.find(f => f.url === s.url)) {
+                            favoriteStations.push({ name: s.name, url: s.url });
+                            added++;
+                        }
+                    }
+                    saveFavorites();
+                    document.getElementById('radio-status').textContent = `✅ Импортировано ${added} станций`;
+                } else throw new Error();
+            } catch(e) { document.getElementById('radio-status').textContent = '❌ Ошибка импорта'; }
         };
-        document.getElementById('btn-export').onclick = () => { const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([JSON.stringify(favoriteStations)], {type:'application/json'})); a.download = 'radio_favorites.json'; a.click(); radioStatusEl.textContent = '💾 Экспортировано'; };
-        document.getElementById('btn-import').onclick = () => { const inp = document.createElement('input'); inp.type = 'file'; inp.accept = '.json'; inp.onchange = async e => { const data = JSON.parse(await e.target.files[0].text()); data.forEach(s => { if (!favoriteStations.find(x => x.url === s.url)) favoriteStations.push(s); }); saveFavorites(); radioStatusEl.textContent = '✅ Импорт завершён'; }; inp.click(); };
+        input.click();
+    }
 
-        // Эффекты
-        reverbSlider.oninput = () => { valReverb.textContent = reverbSlider.value; if (reverbWetGain) reverbWetGain.gain.value = reverbSlider.value / 100; saveSettings(); };
-        delaySlider.oninput = () => { valDelay.textContent = delaySlider.value; if (delayWetGain) delayWetGain.gain.value = delaySlider.value / 100; saveSettings(); };
-        stereoSlider.oninput = () => { valStereo.textContent = stereoSlider.value; if (stereoWidener) stereoWidener.gain.value = stereoSlider.value / 100; saveSettings(); };
+    // ==================== ПРЕСЕТЫ ЭФФЕКТОВ ====================
+    const spacePresets = { 'Сухо':{reverb:0,delay:0,stereo:0,tip:'Без обработки'}, 'Комната':{reverb:30,delay:15,stereo:20,tip:'Небольшая комната'}, 'Зал':{reverb:55,delay:28,stereo:35,tip:'Концертный зал'}, 'Пещера':{reverb:80,delay:45,stereo:50,tip:'Гулкое эхо'}, 'Широко':{reverb:10,delay:0,stereo:80,tip:'Расширенная стереобаза'} };
+    const eqPresets = { 'Плоско':[0,0,0,0,0,0,0,0,0,0], 'Рок':[4,3,1,-1,0,2,4,5,3,2], 'Джаз':[3,2,1,0,-1,-1,0,1,2,2], 'Бас':[6,5,3,1,0,0,0,0,0,0], 'Яркость':[0,0,0,0,0,1,3,5,6,6] };
+    function applySpacePreset(name) { const p = spacePresets[name]; if(p){ reverbSlider.value=p.reverb; valReverb.textContent=p.reverb; delaySlider.value=p.delay; valDelay.textContent=p.delay; stereoSlider.value=p.stereo; valStereo.textContent=p.stereo; applyEffects(); spaceTip.textContent=p.tip; saveSettings(); } }
+    function applyEQPreset(name) { const v = eqPresets[name]; if(v){ const sl = eqBandsDiv.querySelectorAll('input'); v.forEach((val,i)=>{ if(sl[i]) sl[i].value = val; if(eqFilters[i]) eqFilters[i].gain.value = val; }); eqTip.textContent = `Эквалайзер: ${name}`; saveSettings(); } }
+    function buildEQ() { eqBandsDiv.innerHTML = ''; EQ_FREQS.forEach((f,i)=>{ const b=document.createElement('div'); b.className='eq-band'; const s=document.createElement('input'); s.type='range'; s.min=-12; s.max=12; s.value=0; s.step=0.5; const l=document.createElement('span'); l.textContent=f>=1000?`${f/1000}k`:f; s.oninput=()=>{ if(eqFilters[i]) eqFilters[i].gain.value=parseFloat(s.value); saveSettings(); }; b.appendChild(s); b.appendChild(l); eqBandsDiv.appendChild(b); }); }
+    function initPresetButtons() { const spBtns = document.querySelector('#space-presets .preset-btns'); Object.keys(spacePresets).forEach(n=>{ const b=document.createElement('button'); b.textContent=n; b.onclick=()=>applySpacePreset(n); spBtns.appendChild(b); }); const eqBtns = document.querySelector('#eq-presets .preset-btns'); Object.keys(eqPresets).forEach(n=>{ const b=document.createElement('button'); b.textContent=n; b.onclick=()=>applyEQPreset(n); eqBtns.appendChild(b); }); }
 
-        const spacePresets = { 'Сухо':{reverb:0,delay:0,stereo:0,tip:'Без обработки'}, 'Комната':{reverb:30,delay:15,stereo:20,tip:'Небольшая комната'}, 'Зал':{reverb:50,delay:25,stereo:35,tip:'Концертный зал'}, 'Пещера':{reverb:80,delay:40,stereo:50,tip:'Гулкое эхо'}, 'Широко':{reverb:10,delay:0,stereo:80,tip:'Расширенная стереобаза'} };
-        const eqPresets = { 'Плоско':[0,0,0,0,0,0,0,0,0,0], 'Рок':[4,3,1,-1,0,2,4,5,3,2], 'Джаз':[3,2,1,0,-1,-1,0,1,2,2], 'Бас':[6,5,3,1,0,0,0,0,0,0], 'Яркость':[0,0,0,0,0,1,3,5,6,6] };
-        function applySpacePreset(name) { const p = spacePresets[name]; if (!p) return; reverbSlider.value = p.reverb; valReverb.textContent = p.reverb; if (reverbWetGain) reverbWetGain.gain.value = p.reverb / 100; delaySlider.value = p.delay; valDelay.textContent = p.delay; if (delayWetGain) delayWetGain.gain.value = p.delay / 100; stereoSlider.value = p.stereo; valStereo.textContent = p.stereo; if (stereoWidener) stereoWidener.gain.value = p.stereo / 100; document.getElementById('space-tip').textContent = p.tip; saveSettings(); }
-        function applyEQPreset(name) { const v = eqPresets[name]; if (!v) return; const sl = eqBandsDiv.querySelectorAll('input[type="range"]'); v.forEach((val, i) => { if (sl[i]) sl[i].value = val; if (eqFilters[i]) eqFilters[i].gain.value = val; }); document.getElementById('eq-tip').textContent = `Эквалайзер: ${name}`; saveSettings(); }
-        function buildEQ() { eqBandsDiv.innerHTML = ''; EQ_FREQS.forEach((f, i) => { const b = document.createElement('div'); b.className = 'eq-band'; const s = document.createElement('input'); s.type = 'range'; s.min = -12; s.max = 12; s.value = 0; s.step = 0.5; const l = document.createElement('span'); l.textContent = f >= 1000 ? `${f/1000}k` : f; s.oninput = () => { if (eqFilters[i]) eqFilters[i].gain.value = parseFloat(s.value); saveSettings(); }; b.appendChild(s); b.appendChild(l); eqBandsDiv.appendChild(b); }); }
-        function initPresets() { const spBtns = document.querySelector('#space-presets .preset-btns'); Object.keys(spacePresets).forEach(n => { const b = document.createElement('button'); b.textContent = n; b.onclick = () => applySpacePreset(n); spBtns.appendChild(b); }); const eqBtns = document.querySelector('#eq-presets .preset-btns'); Object.keys(eqPresets).forEach(n => { const b = document.createElement('button'); b.textContent = n; b.onclick = () => applyEQPreset(n); eqBtns.appendChild(b); }); }
-
-        document.querySelectorAll('#tabs .tab').forEach(tab => {
-            tab.onclick = () => {
-                document.querySelectorAll('#tabs .tab').forEach(t => t.classList.remove('active'));
-                document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
-                tab.classList.add('active');
-                document.getElementById(`tab-${tab.dataset.tab}`).classList.add('active');
-            };
-        });
-        function updateSelectionTools() {
-            if (selectedIndices.size > 0) {
-                selectionTools.style.display = 'flex';
-            } else if (!selectionMode) {
-                selectionTools.style.display = 'none';
-                document.querySelectorAll('#playlist li .playlist-checkbox').forEach(cb => {
-                    cb.style.display = 'none';
-                    cb.checked = false;
-                });
-                selectionMode = false;
-            }
-        }
-
-        function moveSelectedTracks(direction) {
-            if (selectedIndices.size === 0) return;
-
-            const sortedIndices = Array.from(selectedIndices).sort((a,b) => direction === 'up' ? a - b : b - a);
-
-            for (const idx of sortedIndices) {
-                let newIdx = direction === 'up' ? idx - 1 : idx + 1;
-                if (newIdx < 0 || newIdx >= playlist.length) continue;
-
-                [playlist[idx], playlist[newIdx]] = [playlist[newIdx], playlist[idx]];
-
-                selectedIndices.delete(idx);
-                selectedIndices.add(newIdx);
-            }
-
-            fullPlaylist = [...playlist];
-            renderPlaylist();
-
-            document.querySelectorAll('#playlist li .playlist-checkbox').forEach((cb, idx) => {
-                if (selectedIndices.has(idx)) {
-                    cb.checked = true;
-                    cb.style.display = 'inline-block';
-                }
-            });
-
-            savePlaylistToStorage();
-        }
-
-        btnMoveUpGroup.onclick = () => moveSelectedTracks('up');
-        btnMoveDownGroup.onclick = () => moveSelectedTracks('down');
-        btnClearSelection.onclick = () => {
-            selectedIndices.clear();
-            selectionMode = false;
-            selectionTools.style.display = 'none';
-            document.querySelectorAll('#playlist li .playlist-checkbox').forEach(cb => {
-                cb.style.display = 'none';
-                cb.checked = false;
-            });
+    // ==================== ТАБЫ ====================
+    document.querySelectorAll('#tabs .tab').forEach(tab => {
+        tab.onclick = () => {
+            document.querySelectorAll('#tabs .tab').forEach(t => t.classList.remove('active'));
+            document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+            tab.classList.add('active');
+            document.getElementById(`tab-${tab.dataset.tab}`).classList.add('active');
         };
-        function flushAllSources() {
-            if (currentSource) {
-                try { currentSource.stop(); } catch(e) {}
-                try { currentSource.disconnect(); } catch(e) {}
-                currentSource = null;
-            }
-        }
-        function highlightSelectedStation(url, name) {
-            // Убираем подсветку со всех элементов
-            document.querySelectorAll('.station-item, .favorite-item').forEach(el => {
-                el.style.background = '';
-                el.style.opacity = '1';
-            });
+    });
 
-            // Подсвечиваем выбранную станцию
-            document.querySelectorAll('.station-item, .favorite-item').forEach(el => {
-                let stationText = '';
-                if (el.classList.contains('favorite-item')) {
-                    const nameSpan = el.querySelector('.favorite-name');
-                    if (nameSpan) stationText = nameSpan.innerText.replace('⭐ ', '');
-                } else {
-                    const nameDiv = el.querySelector('.station-name');
-                    if (nameDiv) stationText = nameDiv.innerText.split('📍')[0].trim();
-                }
+    // ==================== ОБРАБОТЧИКИ ====================
+    btnSelectRoot.onclick = selectRootFolder;
+    btnUpFolder.onclick = navigateUp;
+    btnClearAll.onclick = clearEverything;
+    btnPlay.onclick = actionPlayPause;
+    btnStop.onclick = actionStop;
+    btnPrev.onclick = actionRewind;
+    btnNext.onclick = actionForward;
+    seekBar.oninput = (e)=> { if(currentBuffer) { let val = parseFloat(e.target.value); seekTo(val); } };
+    chkGapless.onchange = ()=>{ gaplessEnabled=chkGapless.checked; saveSettings(); };
+    reverbSlider.oninput = ()=>{ valReverb.textContent=reverbSlider.value; applyEffects(); };
+    delaySlider.oninput = ()=>{ valDelay.textContent=delaySlider.value; applyEffects(); };
+    stereoSlider.oninput = ()=>{ valStereo.textContent=stereoSlider.value; applyEffects(); };
+    treeSearch.oninput = (e) => { searchQuery = e.target.value; renderTreeView(); };
+    searchClear.onclick = () => { treeSearch.value = ''; searchQuery = ''; renderTreeView(); };
+    document.getElementById('btn-online-search').onclick = () => searchRadioStations(document.getElementById('online-search').value);
+    document.getElementById('online-search').onkeydown = (e) => { if(e.key === 'Enter') searchRadioStations(e.target.value); };
+    document.getElementById('btn-add-station').onclick = () => { let url = document.getElementById('station-url').value.trim(), name = document.getElementById('station-name').value.trim(); if(url && name) addToFavorites(name, url); else document.getElementById('radio-status').textContent = '❌ Введите URL и название'; };
+    document.getElementById('btn-radio-play').onclick = () => { let url = document.getElementById('station-url').value.trim(), name = document.getElementById('station-name').value.trim(); if(url) playRadioStream(url, name); };
+    document.getElementById('btn-radio-stop').onclick = stopRadio;
+    document.getElementById('btn-search-prev').onclick = () => { if(searchCurrentPage > 0) { searchCurrentPage--; renderSearchResults(); } };
+    document.getElementById('btn-search-next').onclick = () => { if((searchCurrentPage+1) * SEARCH_PAGE_SIZE < searchResults.length) { searchCurrentPage++; renderSearchResults(); } };
+    document.getElementById('btn-fav-prev').onclick = () => { if(favCurrentPage > 0) { favCurrentPage--; renderFavorites(); } };
+    document.getElementById('btn-fav-next').onclick = () => { if((favCurrentPage+1) * FAV_PAGE_SIZE < favoriteStations.length) { favCurrentPage++; renderFavorites(); } };
+    document.getElementById('btn-export').onclick = exportFavorites;
+    document.getElementById('btn-import').onclick = importFavorites;
 
-                if (stationText === name) {
-                    el.style.background = 'var(--highlight)';
-                    el.style.opacity = '0.9';
-                }
-            });
-        }
-        loadSettings();
+    async function init() {
         buildEQ();
-        initPresets();
+        initPresetButtons();
+        loadSettings();
         loadFavorites();
-    </script>
+        restoreLastFolder();
+        startTimeLoop();
+    }
+    init();
+</script>
 </body>
 </html>
