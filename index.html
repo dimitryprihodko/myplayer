@@ -180,6 +180,21 @@
         .import-export { display: flex; gap: 8px; margin-top: 8px; }
         .import-export button { flex: 1; font-size: 0.75rem; padding: 6px; }
         .section-header { font-size: 0.75rem; color: var(--highlight); margin: 8px 0 4px; display: flex; justify-content: space-between; }
+        .loader-detail {
+            font-size: 0.75rem;
+            color: var(--text2);
+            margin-top: 12px;
+            max-width: 280px;
+            text-align: center;
+            word-break: break-word;
+            line-height: 1.3;
+        }
+        .cancel-scan-btn {
+            background: var(--highlight);
+            margin-top: 16px;
+            padding: 8px 20px;
+            font-size: 0.8rem;
+        }
     </style>
 </head>
 <body>
@@ -282,6 +297,7 @@
     <div class="loader-text">⏳ Загрузка...</div>
     <div class="loader-bar"><div class="loader-fill" id="loader-fill"></div></div>
     <div class="loader-detail" id="loader-detail"></div>
+    <button id="cancel-scan-btn" class="cancel-scan-btn" style="display: none;">❌ Отменить сканирование</button>
 </div>
 
 <script>
@@ -301,6 +317,21 @@
     let isLoading = false;
     let nextTrackTimer = null;
     let isEndedProcessing = false;
+    let isMobile = /Android|iPhone|iPad|iPod|webOS/i.test(navigator.userAgent);
+    let scanAbortController = null;
+
+    // Аудиоузлы (правильная архитектура из index_w_tree.html)
+    let masterGain = null;
+    let dryGain = null;
+    let stereoWidener = null;
+    let delayNode = null;
+    let delayFeedbackNode = null;
+    let delayWetGain = null;
+    let convolver = null;
+    let reverbWetGain = null;
+    let graphInput = null;
+    let eqFilters = [];
+    let graphBuilt = false;
 
     // Данные
     let flatPlaylist = [];
@@ -313,12 +344,10 @@
     let savedCurrentIndex = -1;
     let savedOpenFolders = new Set();
 
-    // Эффекты
-    let masterGain = null, dryGain = null, reverbWet = null, delayWet = null, stereoGain = null, convolver = null, delayNode = null, delayFeedback = null;
-    let eqFilters = [];
+    // Константы
     const EQ_FREQS = [31, 62, 125, 250, 500, 1000, 2000, 4000, 8000, 16000];
-    let graphInput = null;
-    let graphBuilt = false;
+    const MAX_CACHE = 50;
+    let bufferCache = new Map();
 
     // Радио
     let radioAudio = null;
@@ -358,64 +387,115 @@
     const loaderDetail = document.getElementById('loader-detail');
     const spaceTip = document.getElementById('space-tip');
     const eqTip = document.getElementById('eq-tip');
+    const cancelScanBtn = document.getElementById('cancel-scan-btn');
 
     // ==================== ВСПОМОГАТЕЛЬНЫЕ ====================
-    function showLoader(text, detail) { loadingOverlay.classList.add('active'); if(text) document.querySelector('.loader-text').innerHTML = text; if(detail) loaderDetail.textContent = detail; loaderFill.style.width = '0%'; }
-    function hideLoader() { loadingOverlay.classList.remove('active'); }
+    function showLoader(text, detail, showCancel = false) {
+        loadingOverlay.classList.add('active');
+        if(text) document.querySelector('.loader-text').innerHTML = text;
+        if(detail) loaderDetail.innerHTML = detail;
+        loaderFill.style.width = '0%';
+        cancelScanBtn.style.display = showCancel ? 'block' : 'none';
+    }
+    function hideLoader() {
+        loadingOverlay.classList.remove('active');
+        cancelScanBtn.style.display = 'none';
+    }
     function escapeHtml(str) { return str.replace(/[&<>]/g, m => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;' }[m])); }
     function formatTime(sec) { if(isNaN(sec)) sec=0; let m = Math.floor(sec/60), s = Math.floor(sec%60); return `${m}:${s.toString().padStart(2,'0')}`; }
 
-    // ==================== АУДИО ДВИЖОК ====================
+    // Перенос строк для длинных названий
+    function wrapFileName(name, maxLen = 45) {
+        if (name.length <= maxLen) return name;
+        const parts = name.split('/');
+        if (parts.length > 2) {
+            const fileName = parts.pop();
+            const lastFolder = parts.pop();
+            const prefix = parts.length > 0 ? '...' : '';
+            const result = `${prefix}/${lastFolder}/${fileName}`;
+            if (result.length > maxLen) {
+                return `.../${fileName.substring(0, maxLen - 10)}...`;
+            }
+            return result;
+        }
+        return name.substring(0, maxLen - 3) + '...';
+    }
+
+    // ==================== АУДИО ГРАФ (ПРАВИЛЬНАЯ ВЕРСИЯ ИЗ index_w_tree.html) ====================
+    function createReverbImpulse(ctx, duration) {
+        const sr = ctx.sampleRate;
+        const len = Math.floor(sr * duration);
+        const buf = ctx.createBuffer(2, len, sr);
+        for (let ch = 0; ch < 2; ch++) {
+            const d = buf.getChannelData(ch);
+            for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, 1.5);
+        }
+        return buf;
+    }
+
     function buildAudioGraph() {
         if(graphBuilt) return graphInput;
         const ctx = audioContext;
+
         graphInput = ctx.createGain();
         dryGain = ctx.createGain();
-        stereoGain = ctx.createGain();
+        stereoWidener = ctx.createGain();
+
         delayNode = ctx.createDelay(2.0);
         delayNode.delayTime.value = 0.3;
-        delayFeedback = ctx.createGain();
-        delayFeedback.gain.value = 0.3;
-        delayWet = ctx.createGain();
-        delayNode.connect(delayFeedback);
-        delayFeedback.connect(delayNode);
+        delayFeedbackNode = ctx.createGain();
+        delayFeedbackNode.gain.value = 0.3;
+        delayWetGain = ctx.createGain();
+        delayNode.connect(delayFeedbackNode);
+        delayFeedbackNode.connect(delayNode);
+
         convolver = ctx.createConvolver();
-        const impulse = (duration=1.5) => {
-            const len = ctx.sampleRate * duration;
-            const buf = ctx.createBuffer(2, len, ctx.sampleRate);
-            for(let ch=0;ch<2;ch++) { let data = buf.getChannelData(ch); for(let i=0;i<len;i++) data[i] = (Math.random()*2-1) * Math.pow(1-i/len,1.5); }
-            return buf;
-        };
-        convolver.buffer = impulse(1.5);
-        reverbWet = ctx.createGain();
-        eqFilters = EQ_FREQS.map(f=>{ let f1 = ctx.createBiquadFilter(); f1.type='peaking'; f1.frequency.value=f; f1.Q.value=1; f1.gain.value=0; return f1; });
-        for(let i=0;i<eqFilters.length-1;i++) eqFilters[i].connect(eqFilters[i+1]);
+        convolver.buffer = createReverbImpulse(ctx, isMobile ? 0.8 : 1.5);
+        reverbWetGain = ctx.createGain();
+
+        eqFilters = EQ_FREQS.map(f => {
+            const fn = ctx.createBiquadFilter();
+            fn.type = 'peaking';
+            fn.frequency.value = f;
+            fn.Q.value = 1;
+            fn.gain.value = 0;
+            return fn;
+        });
+        for (let i = 0; i < eqFilters.length - 1; i++) eqFilters[i].connect(eqFilters[i + 1]);
+
         masterGain = ctx.createGain();
         masterGain.gain.value = 0.8;
         masterGain.connect(ctx.destination);
+
         graphInput.connect(eqFilters[0]);
-        eqFilters[eqFilters.length-1].connect(dryGain);
+        const eqEnd = eqFilters[eqFilters.length - 1];
+
+        eqEnd.connect(dryGain);
         dryGain.connect(masterGain);
-        eqFilters[eqFilters.length-1].connect(stereoGain);
-        stereoGain.connect(masterGain);
-        eqFilters[eqFilters.length-1].connect(delayNode);
-        delayNode.connect(delayWet);
-        delayWet.connect(masterGain);
-        eqFilters[eqFilters.length-1].connect(convolver);
-        convolver.connect(reverbWet);
-        reverbWet.connect(masterGain);
+
+        eqEnd.connect(stereoWidener);
+        stereoWidener.connect(masterGain);
+
+        eqEnd.connect(delayNode);
+        delayNode.connect(delayWetGain);
+        delayWetGain.connect(masterGain);
+
+        eqEnd.connect(convolver);
+        convolver.connect(reverbWetGain);
+        reverbWetGain.connect(masterGain);
+
         graphBuilt = true;
         applyEffects();
         return graphInput;
     }
 
-    function initAudio() { if(!audioContext) { audioContext = new (window.AudioContext || window.webkitAudioContext)({latencyHint:'interactive'}); buildAudioGraph(); } if(audioContext.state === 'suspended') audioContext.resume(); return audioContext; }
+    function initAudio() { if(!audioContext) { audioContext = new (window.AudioContext || window.webkitAudioContext)({ latencyHint: isMobile ? 'playback' : 'interactive' }); buildAudioGraph(); } if(audioContext.state === 'suspended') audioContext.resume(); return audioContext; }
 
     function applyEffects() {
         if(!graphBuilt) return;
-        reverbWet.gain.value = parseFloat(reverbSlider.value)/100;
-        delayWet.gain.value = parseFloat(delaySlider.value)/100;
-        stereoGain.gain.value = parseFloat(stereoSlider.value)/100;
+        reverbWetGain.gain.value = parseFloat(reverbSlider.value)/100;
+        delayWetGain.gain.value = parseFloat(delaySlider.value)/100;
+        stereoWidener.gain.value = parseFloat(stereoSlider.value)/100;
         const sliders = eqBandsDiv.querySelectorAll('input');
         sliders.forEach((s,i)=>{ if(eqFilters[i]) eqFilters[i].gain.value = parseFloat(s.value); });
         saveSettings();
@@ -439,24 +519,50 @@
         } catch(e) {}
     }
 
-    async function decodeAudioFile(file) { const ctx = initAudio(); const ab = await file.arrayBuffer(); return await ctx.decodeAudioData(ab); }
+    // ==================== ДЕКОДИРОВАНИЕ С ПРОГРЕССОМ И ПЕРЕНОСОМ СТРОК ====================
+    async function decodeAudioFile(file) {
+        const cacheKey = file.name;
+        if (bufferCache.has(cacheKey)) return bufferCache.get(cacheKey);
 
-    function updateTimeDisplay() {
-        if(currentBuffer) {
-            let cur;
-            if (isPlaying && currentSource && audioContext) {
-                cur = Math.min(currentBuffer.duration, Math.max(0, audioContext.currentTime - startTime));
-            } else {
-                cur = pausedAt;
+        const ctx = initAudio();
+        const shortName = wrapFileName(file.name, 40);
+        showLoader('🎵 Декодирование...', shortName);
+        loaderFill.style.width = '0%';
+
+        let progressInterval;
+        const isLargeFile = file.size > 5 * 1024 * 1024;
+
+        if (isLargeFile) {
+            let fakeProgress = 0;
+            progressInterval = setInterval(() => {
+                fakeProgress = Math.min(fakeProgress + 8, 90);
+                loaderFill.style.width = fakeProgress + '%';
+                loaderDetail.innerHTML = `${shortName}<br>⏳ ${fakeProgress}%`;
+            }, 150);
+        } else {
+            loaderDetail.innerHTML = shortName;
+            loaderFill.style.width = '30%';
+        }
+
+        try {
+            const ab = await file.arrayBuffer();
+            if (progressInterval) {
+                loaderFill.style.width = '70%';
+                loaderDetail.innerHTML = `${shortName}<br>🔄 Обработка...`;
             }
-            trackTimeEl.textContent = `${formatTime(cur)} / ${formatTime(currentBuffer.duration)}`;
-            seekBar.value = (cur/currentBuffer.duration)*100;
-        } else trackTimeEl.textContent = '0:00 / 0:00';
+            const buffer = await ctx.decodeAudioData(ab);
+            if (progressInterval) clearInterval(progressInterval);
+            if (bufferCache.size > MAX_CACHE) bufferCache.delete(bufferCache.keys().next().value);
+            bufferCache.set(cacheKey, buffer);
+            hideLoader();
+            return buffer;
+        } catch(e) {
+            if (progressInterval) clearInterval(progressInterval);
+            hideLoader();
+            throw e;
+        }
     }
 
-    function startTimeLoop() { if(animationId) cancelAnimationFrame(animationId); function loop() { if(!isSeeking) updateTimeDisplay(); animationId = requestAnimationFrame(loop); } loop(); }
-
-    // Получить текущую позицию воспроизведения
     function getCurrentPosition() {
         if (!currentBuffer) return 0;
         if (isPlaying && currentSource && audioContext) {
@@ -465,45 +571,91 @@
         return pausedAt;
     }
 
+    function updateTimeDisplay() {
+        if(currentBuffer) {
+            let cur = getCurrentPosition();
+            trackTimeEl.textContent = `${formatTime(cur)} / ${formatTime(currentBuffer.duration)}`;
+            if (!isSeeking) seekBar.value = (cur/currentBuffer.duration)*100;
+        } else trackTimeEl.textContent = '0:00 / 0:00';
+    }
+
+    function startTimeLoop() { if(animationId) cancelAnimationFrame(animationId); function loop() { if(!isSeeking) updateTimeDisplay(); animationId = requestAnimationFrame(loop); } loop(); }
+
+    function killCurrentSource() {
+        if (currentSource) {
+            try { currentSource.stop(); } catch(e) {}
+            try { currentSource.disconnect(); } catch(e) {}
+            currentSource = null;
+        }
+    }
+
+    function startSource(offset) {
+        if(!currentBuffer) return;
+        killCurrentSource();
+
+        const ctx = initAudio();
+        let startOff = Math.min(Math.max(0, offset), currentBuffer.duration - 0.1);
+
+        currentSource = ctx.createBufferSource();
+        currentSource.buffer = currentBuffer;
+        currentSource.connect(graphInput || buildAudioGraph());
+
+        isEndedProcessing = false;
+
+        currentSource.onended = () => {
+            if (isEndedProcessing) return;
+            isEndedProcessing = true;
+            const currentPos = getCurrentPosition();
+            const ended = (currentPos >= currentBuffer.duration - 0.3) || (Math.abs(currentBuffer.duration - currentPos) < 0.5);
+            if (ended && currentIndex + 1 < flatPlaylist.length) {
+                if (gaplessEnabled) {
+                    playNextTrack();
+                } else {
+                    if (nextTrackTimer) clearTimeout(nextTrackTimer);
+                    nextTrackTimer = setTimeout(() => playNextTrack(), 2000);
+                }
+            } else if (ended) {
+                actionStop();
+            } else {
+                setTimeout(() => { isEndedProcessing = false; }, 100);
+            }
+        };
+
+        currentSource.start(0, startOff);
+        startTime = ctx.currentTime - startOff;
+        pausedAt = startOff;
+        isPlaying = true;
+        btnPlay.textContent = '⏸️';
+        startTimeLoop();
+    }
+
     function playNextTrack() {
         if(nextTrackTimer) clearTimeout(nextTrackTimer);
         if(currentIndex + 1 < flatPlaylist.length) {
-            console.log('Переход на следующий трек:', currentIndex + 1);
             loadTrackByIndex(currentIndex + 1, true);
-        } else {
-            console.log('Это последний трек в плейлисте');
-            actionStop();
         }
     }
 
     async function loadTrackByIndex(index, autoPlay = true) {
-        if(index<0 || index>=flatPlaylist.length || isLoading) {
-            console.log('Не удалось загрузить трек:', index);
-            return false;
-        }
+        if(index<0 || index>=flatPlaylist.length || isLoading) return false;
         isLoading = true;
         try {
-            if(currentSource) {
-                try{ currentSource.stop(); currentSource.disconnect(); }catch(e){}
-                currentSource = null;
-            }
+            killCurrentSource();
+            if(nextTrackTimer) clearTimeout(nextTrackTimer);
             isPlaying = false;
             btnPlay.textContent = '▶️';
 
             const item = flatPlaylist[index];
             if(!item || !item.file) return false;
 
-            const buffer = await decodeAudioFile(item.file);
-            currentBuffer = buffer;
+            currentBuffer = await decodeAudioFile(item.file);
             currentIndex = index;
-            trackTitleEl.textContent = item.name;
+            trackTitleEl.textContent = wrapFileName(item.name, 60);
             pausedAt = 0;
             seekBar.value = 0;
             updateTimeDisplay();
 
-            if(autoPlay) {
-                startSource(0);
-            }
+            if(autoPlay) startSource(0);
 
             if(gaplessEnabled && index+1 < flatPlaylist.length) {
                 preloadNext(index+1);
@@ -531,70 +683,6 @@
         } catch(e) { nextBuffer = null; }
     }
 
-    function startSource(offset) {
-        if(!currentBuffer) {
-            console.log('Нет буфера для воспроизведения');
-            return;
-        }
-        if(currentSource) {
-            try{ currentSource.stop(); currentSource.disconnect(); }catch(e){}
-        }
-        const ctx = initAudio();
-        let startOff = Math.min(Math.max(0, offset), currentBuffer.duration - 0.05);
-
-        currentSource = ctx.createBufferSource();
-        currentSource.buffer = currentBuffer;
-        currentSource.connect(graphInput || buildAudioGraph());
-
-        isEndedProcessing = false;
-
-        currentSource.onended = () => {
-            if (isEndedProcessing) {
-                console.log('onended уже обработан, пропускаем');
-                return;
-            }
-            isEndedProcessing = true;
-
-            // ВАЖНО: вычисляем реальную позицию в момент окончания
-            const currentPos = getCurrentPosition();
-            console.log('onended сработал, currentPos =', currentPos, 'duration =', currentBuffer ? currentBuffer.duration : 'null');
-
-            // Трек считается закончившимся, если позиция близка к длительности
-            const ended = (currentPos >= currentBuffer.duration - 0.3) ||
-                         (Math.abs(currentBuffer.duration - currentPos) < 0.5);
-
-            console.log('ended =', ended, 'есть следующий?', currentIndex + 1 < flatPlaylist.length);
-
-            if (ended && currentIndex + 1 < flatPlaylist.length) {
-                console.log('Трек закончился, переключаем на следующий. gapless =', gaplessEnabled);
-                if (gaplessEnabled) {
-                    playNextTrack();
-                } else {
-                    if (nextTrackTimer) clearTimeout(nextTrackTimer);
-                    nextTrackTimer = setTimeout(() => {
-                        playNextTrack();
-                        nextTrackTimer = null;
-                    }, 2000);
-                }
-            } else if (ended) {
-                console.log('Трек закончился, следующих нет');
-                actionStop();
-            } else {
-                console.log('onended сработал, но трек не закончился (ошибка)');
-                // Сбрасываем флаг, чтобы можно было обработать повторно
-                setTimeout(() => { isEndedProcessing = false; }, 100);
-            }
-        };
-
-        currentSource.start(0, startOff);
-        startTime = ctx.currentTime - startOff;
-        pausedAt = startOff;
-        isPlaying = true;
-        btnPlay.textContent = '⏸️';
-        startTimeLoop();
-        console.log('Воспроизведение начато с позиции', startOff);
-    }
-
     function actionPlayPause() {
         if(!currentBuffer) {
             if(flatPlaylist.length > 0 && currentIndex === -1) {
@@ -604,7 +692,7 @@
         }
         if(isPlaying) {
             pausedAt = getCurrentPosition();
-            if(currentSource) { try{ currentSource.stop(); currentSource.disconnect(); }catch(e){} currentSource=null; }
+            killCurrentSource();
             isPlaying=false;
             btnPlay.textContent='▶️';
             updateTimeDisplay();
@@ -615,10 +703,7 @@
 
     function actionStop() {
         if(nextTrackTimer) clearTimeout(nextTrackTimer);
-        if(currentSource) {
-            try{ currentSource.stop(); }catch(e){}
-            currentSource=null;
-        }
+        killCurrentSource();
         isPlaying=false;
         btnPlay.textContent='▶️';
         pausedAt=0;
@@ -629,10 +714,7 @@
     function actionRewind() {
         if(!currentBuffer) return;
         let t = Math.max(0, getCurrentPosition() - 10);
-        if(currentSource) {
-            try{ currentSource.stop(); currentSource.disconnect(); }catch(e){}
-            currentSource=null;
-        }
+        killCurrentSource();
         isPlaying=false;
         pausedAt=t;
         startSource(t);
@@ -642,14 +724,10 @@
         if(!currentBuffer) return;
         let t = Math.min(currentBuffer.duration - 0.1, getCurrentPosition() + 10);
         if(t >= currentBuffer.duration - 0.1) {
-            // Если дошли до конца — останавливаемся
             actionStop();
             return;
         }
-        if(currentSource) {
-            try{ currentSource.stop(); currentSource.disconnect(); }catch(e){}
-            currentSource=null;
-        }
+        killCurrentSource();
         isPlaying=false;
         pausedAt=t;
         startSource(t);
@@ -659,10 +737,7 @@
         if(!currentBuffer) return;
         const t = (percent/100)*currentBuffer.duration;
         const wasPlaying=isPlaying;
-        if(currentSource) {
-            try{ currentSource.stop(); currentSource.disconnect(); }catch(e){}
-            currentSource=null;
-        }
+        killCurrentSource();
         isPlaying=false;
         pausedAt=t;
         updateTimeDisplay();
@@ -674,19 +749,32 @@
         }, 200);
     }
 
-    // ==================== ДЕРЕВО И ФАЙЛЫ ====================
-    async function getAudioFilesFromDir(dirHandle, relativePath = '') {
+    // ==================== БЫСТРОЕ СКАНИРОВАНИЕ С ОТМЕНОЙ ====================
+    async function getAudioFilesFromDir(dirHandle, relativePath = '', progressCallback) {
         let results = [];
+        const audioExts = new Set(['mp3','flac','wav','ogg','m4a','opus','aac']);
+        let count = 0;
+
         for await (const entry of dirHandle.values()) {
-            if(entry.kind === 'file') {
+            // Проверка отмены
+            if (scanAbortController?.signal.aborted) {
+                throw new Error('SCAN_CANCELLED');
+            }
+
+            if (entry.kind === 'file') {
                 const ext = entry.name.split('.').pop().toLowerCase();
-                if(['mp3','flac','wav','ogg','m4a','opus','aac'].includes(ext)) {
-                    const file = await entry.getFile();
+                if (audioExts.has(ext)) {
                     const displayPath = relativePath ? `${relativePath}/${entry.name}` : entry.name;
+                    const file = await entry.getFile();
                     results.push({ file, name: displayPath, path: displayPath });
+                    count++;
+                    if (progressCallback && count % 20 === 0) {
+                        progressCallback(count);
+                        await new Promise(r => setTimeout(r, 5));
+                    }
                 }
-            } else if(entry.kind === 'directory') {
-                const sub = await getAudioFilesFromDir(entry, relativePath ? `${relativePath}/${entry.name}` : entry.name);
+            } else if (entry.kind === 'directory') {
+                const sub = await getAudioFilesFromDir(entry, relativePath ? `${relativePath}/${entry.name}` : entry.name, progressCallback);
                 results.push(...sub);
             }
         }
@@ -702,22 +790,76 @@
     }
 
     async function buildPlaylistFromHandle(dirHandle, restoreAfterLoad = true) {
-        showLoader('🔍 Сканирование...', 'Поиск аудиофайлов');
-        const files = await getAudioFilesFromDir(dirHandle);
-        hideLoader();
-        files.sort((a,b)=>a.name.localeCompare(b.name));
-        flatPlaylist = files;
-        if(flatPlaylist.length===0) folderPathDisplay.innerHTML = '📂 Нет аудиофайлов';
-        else folderPathDisplay.innerHTML = `📁 ${dirHandle.name} | 🎵 ${flatPlaylist.length} треков`;
-
-        if(savedOpenFolders.size > 0) openFolders = new Set(savedOpenFolders);
-        renderTreeView();
-
-        if(restoreAfterLoad && savedCurrentIndex >= 0 && savedCurrentIndex < flatPlaylist.length) {
-            setTimeout(() => loadTrackByIndex(savedCurrentIndex, false), 100);
+        // Создаём контроллер отмены
+        if (scanAbortController) {
+            scanAbortController.abort();
         }
-        saveCurrentFolderState();
+        scanAbortController = new AbortController();
+
+        let lastUpdate = 0;
+        let fileCount = 0;
+        showLoader('🔍 Сканирование...', 'Поиск аудиофайлов...', true);
+        loaderFill.style.width = '0%';
+
+        try {
+            const files = await getAudioFilesFromDir(dirHandle, '', (count) => {
+                fileCount = count;
+                const now = Date.now();
+                if (now - lastUpdate > 150) {
+                    lastUpdate = now;
+                    loaderDetail.innerHTML = `📁 Найдено: ${count} файлов...`;
+                    loaderFill.style.width = Math.min(45, Math.floor(count / 10)) + '%';
+                }
+            });
+
+            // Проверка отмены после сканирования
+            if (scanAbortController.signal.aborted) {
+                throw new Error('SCAN_CANCELLED');
+            }
+
+            loaderDetail.innerHTML = `📊 Сортировка ${files.length} файлов...`;
+            await new Promise(r => setTimeout(r, 10));
+
+            files.sort((a,b)=>a.name.localeCompare(b.name));
+            flatPlaylist = files;
+            hideLoader();
+
+            if(flatPlaylist.length===0) folderPathDisplay.innerHTML = '📂 Нет аудиофайлов';
+            else folderPathDisplay.innerHTML = `📁 ${dirHandle.name} | 🎵 ${flatPlaylist.length} треков`;
+
+            if(savedOpenFolders.size > 0) openFolders = new Set(savedOpenFolders);
+            renderTreeView();
+
+            if(restoreAfterLoad && savedCurrentIndex >= 0 && savedCurrentIndex < flatPlaylist.length) {
+                setTimeout(() => loadTrackByIndex(savedCurrentIndex, false), 100);
+            }
+            saveCurrentFolderState();
+        } catch(e) {
+            if (e.message === 'SCAN_CANCELLED') {
+                loaderDetail.innerHTML = '❌ Сканирование отменено';
+                setTimeout(() => hideLoader(), 1000);
+            } else {
+                hideLoader();
+                throw e;
+            }
+        } finally {
+            scanAbortController = null;
+        }
     }
+
+    // Кнопка отмены сканирования
+    cancelScanBtn.onclick = () => {
+        if (scanAbortController) {
+            scanAbortController.abort();
+            loaderDetail.innerHTML = '⏹ Остановка...';
+            cancelScanBtn.disabled = true;
+            cancelScanBtn.textContent = '⏹ Останавливаем...';
+            setTimeout(() => {
+                cancelScanBtn.disabled = false;
+                cancelScanBtn.textContent = '❌ Отменить сканирование';
+            }, 2000);
+        }
+    };
 
     function filterPlaylistByQuery() {
         if(!searchQuery) return flatPlaylist;
@@ -828,7 +970,9 @@
             currentFolderHandle = handle;
             folderStack = [handle];
             await buildPlaylistFromHandle(handle);
-        } catch(e) { console.log('отмена'); }
+        } catch(e) {
+            if (e.message !== 'SCAN_CANCELLED') console.log('отмена');
+        }
     }
 
     async function navigateUp() {
@@ -860,7 +1004,7 @@
                 const { folderName, currentIndex: idx } = JSON.parse(lastState);
                 savedFolderName = folderName;
                 savedCurrentIndex = idx;
-                folderPathDisplay.innerHTML = `📂 Последняя папка: ${folderName} → нажмите для восстановления`;
+                folderPathDisplay.innerHTML = `📂 Последняя папка: ${folderName} → нажмите для выбора папки`;
                 folderPathDisplay.onclick = () => selectRootFolder();
             } catch(e) {}
         }
@@ -879,6 +1023,7 @@
         currentFolderHandle = null;
         folderStack = [];
         openFolders.clear();
+        bufferCache.clear();
         localStorage.removeItem('last_folder_state');
         localStorage.removeItem('open_folders');
     }
