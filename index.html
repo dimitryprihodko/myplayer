@@ -2,9 +2,32 @@
 <html lang="ru">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
     <meta name="theme-color" content="#16213e">
-    <title>Spatial Player Pro + CUE</title>
+    <meta name="x5-fullscreen" content="true">
+    <meta name="full-screen" content="yes">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
+
+    <!-- НОВЫЙ БЛОК ДЛЯ СКРЫТИЯ АДРЕСНОЙ СТРОКИ -->
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <style>
+        /* Скрываем адресную строку в WebView */
+        .android-webview-bar {
+            display: none !important;
+        }
+    </style>
+    <script>
+        // Попытка скрыть бар
+        window.addEventListener('load', function() {
+            setTimeout(function() {
+                window.scrollTo(0, 1);
+                // Запрашиваем полноэкранный режим
+                try { document.documentElement.requestFullscreen(); } catch(e) {}
+            }, 300);
+        });
+    </script>
+    <title>Spatial Player Pro</title>
     <style>
         :root {
             --bg: #1a1a2e;
