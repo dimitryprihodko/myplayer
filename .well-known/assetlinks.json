@@ -1,0 +1,8 @@
+[{
+  "relation": ["delegate_permission/common.handle_all_urls"],
+  "target": {
+    "namespace": "android_app",
+    "package_name": "com.spatialplayer",
+    "sha256_cert_fingerprints": ["B9:65:E1:75:EC:14:DE:45:56:B4:9D:00:74:44:21:C1:F0:1B:1B:D9:B3:1D:63:B7:89:8C:AE:3D:F0:17:B7:2D"]
+  }
+}]
